@@ -6,7 +6,6 @@ import (
 
 	routev1 "github.com/openshift/api/route/v1"
 	awsv1alpha1 "github.com/openshift/aws-account-operator/pkg/apis/aws/v1alpha1"
-	hivev1 "github.com/openshift/hive/pkg/apis/hive/v1"
 	"github.com/spf13/cobra"
 
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -15,7 +14,6 @@ import (
 	"k8s.io/utils/pointer"
 
 	"github.com/openshift/osd-utils-cli/cmd/account"
-	"github.com/openshift/osd-utils-cli/cmd/clusterdeployment"
 	"github.com/openshift/osd-utils-cli/cmd/cost"
 	"github.com/openshift/osd-utils-cli/cmd/federatedrole"
 )
@@ -26,7 +24,6 @@ var GitCommit string
 func init() {
 	_ = awsv1alpha1.AddToScheme(scheme.Scheme)
 	_ = routev1.AddToScheme(scheme.Scheme)
-	_ = hivev1.AddToScheme(scheme.Scheme)
 
 	NewCmdRoot(genericclioptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr})
 }
@@ -58,7 +55,6 @@ func NewCmdRoot(streams genericclioptions.IOStreams) *cobra.Command {
 
 	// add sub commands
 	rootCmd.AddCommand(account.NewCmdAccount(streams, kubeFlags))
-	rootCmd.AddCommand(clusterdeployment.NewCmdClusterDeployment(streams, kubeFlags))
 	rootCmd.AddCommand(federatedrole.NewCmdFederatedRole(streams, kubeFlags))
 	rootCmd.AddCommand(newCmdMetrics(streams, kubeFlags))
 
