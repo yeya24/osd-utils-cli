@@ -10,7 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	awsprovider "github.com/openshift/osd-utils-cli/pkg/provider/aws"
+	awsprovider "github.com/yeya24/osd-utils-cli/pkg/provider/aws"
 )
 
 // Get AWS Account CR

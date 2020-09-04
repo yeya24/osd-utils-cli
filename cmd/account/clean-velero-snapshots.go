@@ -7,8 +7,8 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 
-	"github.com/openshift/osd-utils-cli/cmd/common"
-	awsprovider "github.com/openshift/osd-utils-cli/pkg/provider/aws"
+	"github.com/yeya24/osd-utils-cli/cmd/common"
+	awsprovider "github.com/yeya24/osd-utils-cli/pkg/provider/aws"
 )
 
 const (

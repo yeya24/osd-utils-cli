@@ -13,9 +13,9 @@ import (
 	"k8s.io/kubectl/pkg/util/templates"
 	"k8s.io/utils/pointer"
 
-	"github.com/openshift/osd-utils-cli/cmd/account"
-	"github.com/openshift/osd-utils-cli/cmd/cost"
-	"github.com/openshift/osd-utils-cli/cmd/federatedrole"
+	"github.com/yeya24/osd-utils-cli/cmd/account"
+	"github.com/yeya24/osd-utils-cli/cmd/cost"
+	"github.com/yeya24/osd-utils-cli/cmd/federatedrole"
 )
 
 // GitCommit is the short git commit hash from the environment

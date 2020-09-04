@@ -3,7 +3,7 @@ GOARCH := $(if $(GOARCH),$(GOARCH),amd64)
 GO=CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) GO111MODULE=on go
 GOVERSION = $(shell $(GO) version | cut -c 14- | cut -d' ' -f1)
 
-REPOSITORY = github.com/openshift/osd-utils-cli
+REPOSITORY = github.com/yeya24/osd-utils-cli
 
 GIT_COMMIT = $(shell git rev-parse --short HEAD)
 

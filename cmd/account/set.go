@@ -13,8 +13,8 @@ import (
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/openshift/osd-utils-cli/cmd/common"
-	"github.com/openshift/osd-utils-cli/pkg/k8s"
+	"github.com/yeya24/osd-utils-cli/cmd/common"
+	"github.com/yeya24/osd-utils-cli/pkg/k8s"
 )
 
 // newCmdSet implements the set command which sets fields in account cr status

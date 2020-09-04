@@ -18,8 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	"github.com/openshift/osd-utils-cli/pkg/k8s"
-	awsprovider "github.com/openshift/osd-utils-cli/pkg/provider/aws"
+	"github.com/yeya24/osd-utils-cli/pkg/k8s"
+	awsprovider "github.com/yeya24/osd-utils-cli/pkg/provider/aws"
 )
 
 const (

@@ -4,8 +4,8 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 
-	"github.com/openshift/osd-utils-cli/cmd/account/get"
-	"github.com/openshift/osd-utils-cli/cmd/account/list"
+	"github.com/yeya24/osd-utils-cli/cmd/account/get"
+	"github.com/yeya24/osd-utils-cli/cmd/account/list"
 )
 
 // NewCmdAccount implements the base account command
