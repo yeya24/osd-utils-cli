@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	awsv1alpha1 "github.com/openshift/aws-account-operator/pkg/apis/aws/v1alpha1"
+	awsv1alpha1 "github.com/openshift/aws-account-operator/api/v1alpha1"
 	"github.com/spf13/cobra"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -17,8 +17,8 @@ import (
 )
 
 // newCmdGetAWSAccount implements the reset command which resets the specified account cr
-func newCmdGetAWSAccount(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *cobra.Command {
-	ops := newGetAWSAccountOptions(streams, flags)
+func newCmdGetAWSAccount(streams genericclioptions.IOStreams, client client.Client) *cobra.Command {
+	ops := newGetAWSAccountOptions(streams, client)
 	getAWSAccountCmd := &cobra.Command{
 		Use:               "aws-account",
 		Short:             "Get AWS Account ID",
@@ -46,15 +46,14 @@ type getAWSAccountOptions struct {
 	accountClaimName      string
 	accountClaimNamespace string
 
-	flags *genericclioptions.ConfigFlags
 	genericclioptions.IOStreams
 	kubeCli client.Client
 }
 
-func newGetAWSAccountOptions(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *getAWSAccountOptions {
+func newGetAWSAccountOptions(streams genericclioptions.IOStreams, client client.Client) *getAWSAccountOptions {
 	return &getAWSAccountOptions{
-		flags:     flags,
 		IOStreams: streams,
+		kubeCli:   client,
 	}
 }
 
@@ -66,12 +65,6 @@ func (o *getAWSAccountOptions) complete(cmd *cobra.Command, _ []string) error {
 
 	if o.accountName != "" && o.accountClaimName != "" {
 		return cmdutil.UsageErrorf(cmd, "Account CR Name and AccountClaim CR Name cannot be set at the same time")
-	}
-
-	var err error
-	o.kubeCli, err = k8s.NewClient(o.flags)
-	if err != nil {
-		return err
 	}
 
 	return nil

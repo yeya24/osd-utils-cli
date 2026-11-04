@@ -6,14 +6,18 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 
+	mockk8s "github.com/openshift/osdctl/cmd/hive/clusterdeployment/mock/k8s"
+	"github.com/openshift/osdctl/internal/utils/globalflags"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
 func TestGetAccountClaimCmdComplete(t *testing.T) {
 	g := NewGomegaWithT(t)
+	mockCtrl := gomock.NewController(t)
 	streams := genericclioptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr}
-	kubeFlags := genericclioptions.NewConfigFlags(false)
+	globalFlags := globalflags.GlobalOptions{Output: ""}
 	testCases := []struct {
 		title       string
 		option      *getAccountClaimOptions
@@ -23,8 +27,9 @@ func TestGetAccountClaimCmdComplete(t *testing.T) {
 		{
 			title: "account id and account cr name empty at the same time",
 			option: &getAccountClaimOptions{
-				accountID:   "",
-				accountName: "",
+				accountID:     "",
+				accountName:   "",
+				GlobalOptions: &globalFlags,
 			},
 			errExpected: true,
 			errContent:  "AWS account ID and Account CR Name cannot be empty at the same time",
@@ -32,8 +37,9 @@ func TestGetAccountClaimCmdComplete(t *testing.T) {
 		{
 			title: "account id and account cr name set at the same time",
 			option: &getAccountClaimOptions{
-				accountID:   "foo",
-				accountName: "bar",
+				accountID:     "foo",
+				accountName:   "bar",
+				GlobalOptions: &globalFlags,
 			},
 			errExpected: true,
 			errContent:  "AWS account ID and Account CR Name cannot be set at the same time",
@@ -41,8 +47,8 @@ func TestGetAccountClaimCmdComplete(t *testing.T) {
 		{
 			title: "succeed",
 			option: &getAccountClaimOptions{
-				accountID: "foo",
-				flags:     kubeFlags,
+				accountID:     "foo",
+				GlobalOptions: &globalFlags,
 			},
 			errExpected: false,
 		},
@@ -50,7 +56,7 @@ func TestGetAccountClaimCmdComplete(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.title, func(t *testing.T) {
-			cmd := newCmdGetAccountClaim(streams, kubeFlags)
+			cmd := newCmdGetAccountClaim(streams, mockk8s.NewMockClient(mockCtrl), &globalFlags)
 			err := tc.option.complete(cmd, nil)
 			if tc.errExpected {
 				g.Expect(err).Should(HaveOccurred())

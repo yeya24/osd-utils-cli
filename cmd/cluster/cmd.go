@@ -1,24 +1,58 @@
 package cluster
 
 import (
+	"github.com/openshift/osdctl/cmd/cluster/access"
+	"github.com/openshift/osdctl/cmd/cluster/cad"
+	"github.com/openshift/osdctl/cmd/cluster/reports"
+	"github.com/openshift/osdctl/cmd/cluster/resize"
+	"github.com/openshift/osdctl/cmd/cluster/sre_operators"
+	"github.com/openshift/osdctl/cmd/cluster/ssh"
+	"github.com/openshift/osdctl/cmd/cluster/support"
+	"github.com/openshift/osdctl/internal/utils/globalflags"
+	"github.com/openshift/osdctl/pkg/k8s"
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
-// NewCmdClusterHealth implements the base cluster health command
-func NewCmdCluster(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *cobra.Command {
+// NewCmdCluster implements the cluster utility
+func NewCmdCluster(streams genericclioptions.IOStreams, client *k8s.LazyClient, globalOpts *globalflags.GlobalOptions) *cobra.Command {
 	clusterCmd := &cobra.Command{
 		Use:               "cluster",
-		Short:             "Provides vitals of an AWS cluster",
+		Short:             "Provides information for a specified cluster",
 		Args:              cobra.NoArgs,
 		DisableAutoGenTag: true,
-		Run:               help,
 	}
 
-	clusterCmd.AddCommand(newCmdHealth(streams, flags))
+	clusterCmd.AddCommand(newCmdHealth())
+	clusterCmd.AddCommand(newCmdLoggingCheck(streams, globalOpts))
+	clusterCmd.AddCommand(newCmdOwner(streams, globalOpts))
+	clusterCmd.AddCommand(support.NewCmdSupport(streams, client, globalOpts))
+	clusterCmd.AddCommand(resize.NewCmdResize())
+	clusterCmd.AddCommand(newCmdResync())
+	clusterCmd.AddCommand(newCmdContext())
+	clusterCmd.AddCommand(newCmdTransferOwner(streams, globalOpts))
+	clusterCmd.AddCommand(newCmdPullSecret(streams, globalOpts))
+	clusterCmd.AddCommand(newCmdReplacePullSecretDeprecated(streams, globalOpts))
+	clusterCmd.AddCommand(access.NewCmdAccess(streams, client))
+	clusterCmd.AddCommand(newCmdCpd())
+	clusterCmd.AddCommand(newCmdCheckBannedUser())
+	clusterCmd.AddCommand(newCmdValidatePullSecret())
+	clusterCmd.AddCommand(newCmdValidatePullSecretExtDeprecated())
+	clusterCmd.AddCommand(newCmdEtcdHealthCheck())
+	clusterCmd.AddCommand(newCmdEtcdMemberReplacement())
+	clusterCmd.AddCommand(newCmdFromInfraId(globalOpts))
+	clusterCmd.AddCommand(NewCmdHypershiftInfo(streams))
+	clusterCmd.AddCommand(newCmdOrgId())
+	clusterCmd.AddCommand(newCmdDetachStuckVolume())
+	clusterCmd.AddCommand(newCmdChangeVolumeType())
+	clusterCmd.AddCommand(NewCmdVerifyDNS(streams))
+	clusterCmd.AddCommand(ssh.NewCmdSSH())
+	clusterCmd.AddCommand(sre_operators.NewCmdSREOperators(streams, client))
+	clusterCmd.AddCommand(newCmdGetEnvVars())
+	clusterCmd.AddCommand(reports.NewCmdReports())
+	clusterCmd.AddCommand(cad.NewCmdCad())
+	clusterCmd.AddCommand(newCmdSnapshot())
+	clusterCmd.AddCommand(newCmdDiff())
+	clusterCmd.AddCommand(newCmdIMDSv2())
 	return clusterCmd
-}
-
-func help(cmd *cobra.Command, _ []string) {
-	cmd.Help()
 }

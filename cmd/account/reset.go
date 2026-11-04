@@ -3,19 +3,17 @@ package account
 import (
 	"bufio"
 	"context"
-	base64 "encoding/base64"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	"github.com/spf13/cobra"
-
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/organizations"
-	"github.com/openshift/aws-account-operator/pkg/apis/aws/v1alpha1"
+	"github.com/aws/aws-sdk-go-v2/service/organizations"
+	"github.com/openshift/aws-account-operator/api/v1alpha1"
 	"github.com/openshift/osdctl/cmd/common"
 	"github.com/openshift/osdctl/pkg/k8s"
 	awsprovider "github.com/openshift/osdctl/pkg/provider/aws"
+	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -26,8 +24,8 @@ import (
 )
 
 // newCmdReset implements the reset command which resets the specified account cr
-func newCmdReset(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *cobra.Command {
-	ops := newResetOptions(streams, flags)
+func newCmdReset(streams genericclioptions.IOStreams, client client.Client) *cobra.Command {
+	ops := newResetOptions(streams, client)
 	resetCmd := &cobra.Command{
 		Use:               "reset <account name>",
 		Short:             "Reset AWS Account CR",
@@ -58,15 +56,14 @@ type resetOptions struct {
 	skipCheck        bool
 	resetLegalEntity bool
 
-	flags *genericclioptions.ConfigFlags
 	genericclioptions.IOStreams
 	kubeCli client.Client
 }
 
-func newResetOptions(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *resetOptions {
+func newResetOptions(streams genericclioptions.IOStreams, client client.Client) *resetOptions {
 	return &resetOptions{
-		flags:     flags,
 		IOStreams: streams,
+		kubeCli:   client,
 	}
 }
 
@@ -76,19 +73,13 @@ func (o *resetOptions) complete(cmd *cobra.Command, args []string) error {
 	}
 	o.accountName = args[0]
 
-	var err error
-	o.kubeCli, err = k8s.NewClient(o.flags)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
 func (o *resetOptions) run() error {
 	if !o.skipCheck {
 		reader := bufio.NewReader(o.In)
-		fmt.Fprintf(o.Out, fmt.Sprintf("Reset account %s? (Y/N) ", o.accountName))
+		fmt.Fprintf(o.Out, "Reset account %s? (Y/N) ", o.accountName)
 		text, _ := reader.ReadSlice('\n')
 
 		input := strings.ToLower(strings.Trim(string(text), "\n"))
@@ -106,10 +97,10 @@ func (o *resetOptions) run() error {
 	}); err != nil {
 		return err
 	}
-	for _, secret := range secrets.Items {
+	for i, secret := range secrets.Items {
 		if strings.HasPrefix(secret.Name, o.accountName) {
 			fmt.Fprintln(o.Out, "Deleting secret "+secret.Name)
-			if err := o.kubeCli.Delete(ctx, &secret, &client.DeleteOptions{}); err != nil {
+			if err := o.kubeCli.Delete(ctx, &secrets.Items[i], &client.DeleteOptions{}); err != nil {
 
 				if apierrors.IsNotFound(err) {
 					continue
@@ -145,21 +136,24 @@ func (o *resetOptions) run() error {
 
 		//get the id of the current OU that the account is living in
 		parent, err := awsClient.ListParents(&organizations.ListParentsInput{
-			ChildId: aws.String(accountId),
+			ChildId: &accountId,
 		})
 		if err != nil {
 			return err
 		}
 		parentId := *parent.Parents[0].Id
 
-		//move the account from the current OU to rootOU
-		_, err = awsClient.MoveAccount(&organizations.MoveAccountInput{
-			AccountId:           aws.String(accountId),
-			DestinationParentId: aws.String(rootId),
-			SourceParentId:      aws.String(parentId),
-		})
-		if err != nil {
-			return err
+		// To avoid DuplicateAccountException, validate we're not trying to move the account to an OU it's already in.
+		if rootId != parentId {
+			//move the account from the current OU to rootOU
+			_, err = awsClient.MoveAccount(&organizations.MoveAccountInput{
+				AccountId:           &accountId,
+				DestinationParentId: &rootId,
+				SourceParentId:      &parentId,
+			})
+			if err != nil {
+				return err
+			}
 		}
 
 		//reset account Spec
@@ -200,25 +194,25 @@ func (o *resetOptions) getAwsClientFromSecret(secretName string, namespace strin
 	if err != nil {
 		return nil, err
 	}
-	accessId := base64.StdEncoding.EncodeToString([]byte(secretAws.Data["aws_access_key_id"]))
+	accessId := base64.StdEncoding.EncodeToString(secretAws.Data["aws_access_key_id"])
 	accessKeyID, err := base64.StdEncoding.DecodeString(accessId)
 	if err != nil {
 		fmt.Println("decode error:", err)
 		return nil, err
 	}
-	secretId := base64.StdEncoding.EncodeToString([]byte(secretAws.Data["aws_secret_access_key"]))
+	secretId := base64.StdEncoding.EncodeToString(secretAws.Data["aws_secret_access_key"])
 	secretkeyID, err := base64.StdEncoding.DecodeString(secretId)
 	if err != nil {
 		fmt.Println("decode error:", err)
 		return nil, err
 	}
-	awsClient, err := awsprovider.NewAwsClientWithInput(&awsprovider.AwsClientInput{
+	awsClient, err := awsprovider.NewAwsClientWithInput(&awsprovider.ClientInput{
 		AccessKeyID:     string(accessKeyID),
 		SecretAccessKey: string(secretkeyID),
 		Region:          "us-east-1",
 	})
 	if err != nil {
-		fmt.Printf(" error occured when calling NewAwsClientWithInput")
+		fmt.Printf(" error occurred when calling NewAwsClientWithInput")
 		return awsClient, err
 	}
 	return awsClient, nil

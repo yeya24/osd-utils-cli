@@ -1,0 +1,68 @@
+## osdctl account rotate-secret
+
+Rotate IAM credentials secret (see also: osdctl account aws-creds)
+
+### Synopsis
+
+When logged into a hive shard, this rotates IAM credential secrets for a given account CR.
+
+NOTE: Consider using 'osdctl account aws-creds' instead. The newer command:
+  - Accepts a cluster ID (no need to look up the account CR name)
+  - Provides a diagnostic snapshot before rotation
+  - Handles account claim resolution automatically
+  - Supports interactive key management and CR secret health verification
+  - Validates IAM permissions via SimulatePrincipalPolicy
+
+Usage:
+  osdctl account aws-creds snapshot -C <cluster-id> --reason <ticket>
+  osdctl account aws-creds rotate -C <cluster-id> --reason <ticket> --managed-admin
+
+```
+osdctl account rotate-secret ${AWS_ACCOUNT_CR_NAME} [flags]
+```
+
+### Examples
+
+```
+  # Rotate IAM credentials for an account CR
+  osdctl account rotate-secret ${AWS_ACCOUNT_CR_NAME} --cluster-id ${CLUSTER_ID} --reason "${REASON}"
+
+  # Rotate including CCS admin credentials
+  osdctl account rotate-secret ${AWS_ACCOUNT_CR_NAME} --cluster-id ${CLUSTER_ID} --reason "${REASON}" --ccs
+
+  # Dry-run to preview without making changes
+  osdctl account rotate-secret ${AWS_ACCOUNT_CR_NAME} --cluster-id ${CLUSTER_ID} --reason "${REASON}" --dry-run
+```
+
+### Options
+
+```
+      --admin-username osdManagedAdmin*   The admin username to use for generating access keys. Must be in the format of osdManagedAdmin*. If not specified, this is inferred from the account CR.
+  -p, --aws-profile string                specify AWS profile
+      --ccs                               Also rotates osdCcsAdmin credential. Use caution.
+  -C, --cluster-id string                 OCM internal/external cluster id or cluster name
+      --dry-run                           Only print what actions would be taken without performing any mutations (no AWS key creation/deletion, no k8s resource changes)
+  -h, --help                              help for rotate-secret
+      --hive-ocm-url string               (optional) OCM environment URL for Hive operations. Aliases: 'production', 'staging', 'integration'. This only changes how the Hive cluster is resolved; the target cluster still comes from the current/default OCM environment.
+      --reason string                     The reason for this command, which requires elevation, to be run (usually an OHSS or PD ticket)
+```
+
+### Options inherited from parent commands
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### SEE ALSO
+
+* [osdctl account](osdctl_account.md)	 - AWS Account related utilities
+

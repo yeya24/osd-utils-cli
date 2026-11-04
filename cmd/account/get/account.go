@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	awsv1alpha1 "github.com/openshift/aws-account-operator/pkg/apis/aws/v1alpha1"
+	awsv1alpha1 "github.com/openshift/aws-account-operator/api/v1alpha1"
 	"github.com/spf13/cobra"
 
 	"k8s.io/cli-runtime/pkg/genericclioptions"
@@ -12,14 +12,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/openshift/osdctl/cmd/common"
+	"github.com/openshift/osdctl/internal/utils/globalflags"
 	"github.com/openshift/osdctl/pkg/k8s"
 	"github.com/openshift/osdctl/pkg/printer"
 )
 
 // newCmdGetAccount implements the get account command which get the Account CR
 // related to the specified AWS Account ID or the specified Account Claim CR
-func newCmdGetAccount(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *cobra.Command {
-	ops := newGetAccountOptions(streams, flags)
+func newCmdGetAccount(streams genericclioptions.IOStreams, client client.Client, globalOpts *globalflags.GlobalOptions) *cobra.Command {
+	ops := newGetAccountOptions(streams, client, globalOpts)
 	getAccountCmd := &cobra.Command{
 		Use:               "account",
 		Short:             "Get AWS Account CR",
@@ -32,7 +33,6 @@ func newCmdGetAccount(streams genericclioptions.IOStreams, flags *genericcliopti
 	}
 
 	ops.printFlags.AddFlags(getAccountCmd)
-	getAccountCmd.Flags().StringVarP(&ops.output, "output", "o", "", "Output format. One of: json|yaml|jsonpath=...|jsonpath-file=... see jsonpath template [http://kubernetes.io/docs/user-guide/jsonpath].")
 	getAccountCmd.Flags().StringVar(&ops.accountNamespace, "account-namespace", common.AWSAccountNamespace,
 		"The namespace to keep AWS accounts. The default value is aws-account-operator.")
 	getAccountCmd.Flags().StringVarP(&ops.accountID, "account-id", "i", "", "AWS account ID")
@@ -51,17 +51,18 @@ type getAccountOptions struct {
 
 	output string
 
-	flags      *genericclioptions.ConfigFlags
 	printFlags *printer.PrintFlags
 	genericclioptions.IOStreams
-	kubeCli client.Client
+	kubeCli       client.Client
+	GlobalOptions *globalflags.GlobalOptions
 }
 
-func newGetAccountOptions(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *getAccountOptions {
+func newGetAccountOptions(streams genericclioptions.IOStreams, client client.Client, globalOpts *globalflags.GlobalOptions) *getAccountOptions {
 	return &getAccountOptions{
-		flags:      flags,
-		printFlags: printer.NewPrintFlags(),
-		IOStreams:  streams,
+		printFlags:    printer.NewPrintFlags(),
+		IOStreams:     streams,
+		kubeCli:       client,
+		GlobalOptions: globalOpts,
 	}
 }
 
@@ -75,12 +76,7 @@ func (o *getAccountOptions) complete(cmd *cobra.Command, _ []string) error {
 		return cmdutil.UsageErrorf(cmd, "AWS account ID and AccountClaim CR Name cannot be set at the same time")
 	}
 
-	var err error
-	o.kubeCli, err = k8s.NewClient(o.flags)
-	if err != nil {
-		return err
-	}
-
+	o.output = o.GlobalOptions.Output
 	return nil
 }
 
@@ -119,10 +115,10 @@ func (o *getAccountOptions) run() error {
 			return err
 		}
 
-		for _, a := range accounts.Items {
+		for i, a := range accounts.Items {
 			if a.Spec.AwsAccountID == o.accountID {
 				accountCRName = a.Name
-				account = &a
+				account = &accounts.Items[i]
 				break
 			}
 		}

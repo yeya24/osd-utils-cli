@@ -6,14 +6,18 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"go.uber.org/mock/gomock"
 
+	mockk8s "github.com/openshift/osdctl/cmd/hive/clusterdeployment/mock/k8s"
+	"github.com/openshift/osdctl/internal/utils/globalflags"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
 func TestGetSecretsCmdComplete(t *testing.T) {
 	g := NewGomegaWithT(t)
+	mockCtrl := gomock.NewController(t)
 	streams := genericclioptions.IOStreams{In: os.Stdin, Out: os.Stdout, ErrOut: os.Stderr}
-	kubeFlags := genericclioptions.NewConfigFlags(false)
+	globalFlags := globalflags.GlobalOptions{Output: ""}
 	testCases := []struct {
 		title       string
 		option      *getSecretsOptions
@@ -23,7 +27,8 @@ func TestGetSecretsCmdComplete(t *testing.T) {
 		{
 			title: "empty account id",
 			option: &getSecretsOptions{
-				accountID: "",
+				accountID:     "",
+				GlobalOptions: &globalFlags,
 			},
 			errExpected: true,
 			errContent:  accountIDRequired,
@@ -31,8 +36,8 @@ func TestGetSecretsCmdComplete(t *testing.T) {
 		{
 			title: "succeed",
 			option: &getSecretsOptions{
-				accountID: "foo",
-				flags:     kubeFlags,
+				accountID:     "foo",
+				GlobalOptions: &globalFlags,
 			},
 			errExpected: false,
 		},
@@ -40,7 +45,7 @@ func TestGetSecretsCmdComplete(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.title, func(t *testing.T) {
-			cmd := newCmdGetSecrets(streams, kubeFlags)
+			cmd := newCmdGetSecrets(streams, mockk8s.NewMockClient(mockCtrl), &globalFlags)
 			err := tc.option.complete(cmd, nil)
 			if tc.errExpected {
 				g.Expect(err).Should(HaveOccurred())

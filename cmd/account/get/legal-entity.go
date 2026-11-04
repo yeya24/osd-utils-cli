@@ -4,22 +4,23 @@ import (
 	"context"
 	"fmt"
 
-	awsv1alpha1 "github.com/openshift/aws-account-operator/pkg/apis/aws/v1alpha1"
+	awsv1alpha1 "github.com/openshift/aws-account-operator/api/v1alpha1"
+	outputflag "github.com/openshift/osdctl/cmd/getoutput"
+	"github.com/openshift/osdctl/internal/utils/globalflags"
 	"github.com/spf13/cobra"
 
 	"k8s.io/cli-runtime/pkg/genericclioptions"
+
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/openshift/osdctl/cmd/common"
-	"github.com/openshift/osdctl/pkg/k8s"
-	"github.com/openshift/osdctl/pkg/printer"
 )
 
 // newCmdGetLegalEntity implements the get legal-entity command which get
 // the legal entity information related to the specified AWS Account ID
-func newCmdGetLegalEntity(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *cobra.Command {
-	ops := newGetLegalEntityOptions(streams, flags)
+func newCmdGetLegalEntity(streams genericclioptions.IOStreams, client client.Client, globalOpts *globalflags.GlobalOptions) *cobra.Command {
+	ops := newGetLegalEntityOptions(streams, client, globalOpts)
 	getLegalEntityCmd := &cobra.Command{
 		Use:               "legal-entity",
 		Short:             "Get AWS Account Legal Entity",
@@ -42,16 +43,29 @@ func newCmdGetLegalEntity(streams genericclioptions.IOStreams, flags *genericcli
 type getLegalEntityOptions struct {
 	accountID        string
 	accountNamespace string
+	output           string
 
-	flags *genericclioptions.ConfigFlags
 	genericclioptions.IOStreams
-	kubeCli client.Client
+	kubeCli       client.Client
+	GlobalOptions *globalflags.GlobalOptions
 }
 
-func newGetLegalEntityOptions(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *getLegalEntityOptions {
+type legalEntityResponse struct {
+	Name string `json:"name" yaml:"name"`
+	Id   string `json:"id" yaml:"id"`
+}
+
+func (f legalEntityResponse) String() string {
+
+	return fmt.Sprintf("  Name: %s\n  Id: %s\n", f.Name, f.Id)
+
+}
+
+func newGetLegalEntityOptions(streams genericclioptions.IOStreams, client client.Client, globalOpts *globalflags.GlobalOptions) *getLegalEntityOptions {
 	return &getLegalEntityOptions{
-		flags:     flags,
-		IOStreams: streams,
+		IOStreams:     streams,
+		kubeCli:       client,
+		GlobalOptions: globalOpts,
 	}
 }
 
@@ -60,19 +74,17 @@ func (o *getLegalEntityOptions) complete(cmd *cobra.Command, _ []string) error {
 		return cmdutil.UsageErrorf(cmd, accountIDRequired)
 	}
 
-	var err error
-	o.kubeCli, err = k8s.NewClient(o.flags)
-	if err != nil {
-		return err
-	}
-
+	o.output = o.GlobalOptions.Output
 	return nil
 }
 
 func (o *getLegalEntityOptions) run() error {
 	ctx := context.TODO()
 
-	var accounts awsv1alpha1.AccountList
+	var (
+		accounts awsv1alpha1.AccountList
+	)
+
 	if err := o.kubeCli.List(ctx, &accounts, &client.ListOptions{
 		Namespace: o.accountNamespace,
 	}); err != nil {
@@ -81,15 +93,25 @@ func (o *getLegalEntityOptions) run() error {
 
 	for _, account := range accounts.Items {
 		if account.Spec.AwsAccountID == o.accountID {
-			p := printer.NewTablePrinter(o.IOStreams.Out, 20, 1, 3, ' ')
-			p.AddRow([]string{"LegalEntity Name", "LegalEntity ID"})
-			p.AddRow([]string{account.Spec.LegalEntity.Name, account.Spec.LegalEntity.ID})
-			return p.Flush()
+
+			resp := legalEntityResponse{
+				Name: account.Spec.LegalEntity.Name,
+				Id:   account.Spec.LegalEntity.ID,
+			}
+
+			err := outputflag.PrintResponse(o.output, resp)
+			if err != nil {
+				fmt.Println("Error while printing response: ", err.Error())
+				return err
+			}
 		}
 	}
 
 	// matched account not found
-	fmt.Fprintf(o.IOStreams.Out, "Account matched for AWS Account ID %s not found\n", o.accountID)
+	_, err := fmt.Fprintf(o.IOStreams.Out, "Account matched for AWS Account ID %s not found\n", o.accountID)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

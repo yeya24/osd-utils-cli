@@ -1,13 +1,18 @@
 package mgmt
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
 	"fmt"
-	"math/rand"
-	"time"
+	"os"
+	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/organizations"
-
+	"github.com/aws/aws-sdk-go-v2/service/organizations"
+	organizationTypes "github.com/aws/aws-sdk-go-v2/service/organizations/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	outputflag "github.com/openshift/osdctl/cmd/getoutput"
+	"github.com/openshift/osdctl/internal/utils/globalflags"
 	"github.com/openshift/osdctl/pkg/printer"
 	awsprovider "github.com/openshift/osdctl/pkg/provider/aws"
 	"github.com/spf13/cobra"
@@ -15,35 +20,46 @@ import (
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 )
 
-// Global variables
-var (
-	OSDStaging2RootID = "r-rs3h"
-	OSDStaging2OuID   = "ou-rs3h-ry0hn2l9"
-	OSDStaging1RootID = "r-0wd6"
-	OSDStaging1OuID   = "ou-0wd6-z6tzkjek"
+const (
+	OSDStaging1RootID              = "r-0wd6"
+	OSDStaging1AssignOuID          = "ou-0wd6-x0ri0jpn"
+	accountEmailGenerationAttempts = 5
 )
 
 type accountAssignOptions struct {
 	awsClient    awsprovider.Client
 	username     string
 	payerAccount string
+	accountID    string
+	accountName  string
+	output       string
+	iamUser      bool
 
-	flags      *genericclioptions.ConfigFlags
 	printFlags *printer.PrintFlags
 	genericclioptions.IOStreams
+	GlobalOptions *globalflags.GlobalOptions
 }
 
-func newAccountAssignOptions(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *accountAssignOptions {
+type assignResponse struct {
+	Username string `json:"username" yaml:"username"`
+	Id       string `json:"id" yaml:"id"`
+}
+
+func (f assignResponse) String() string {
+	return fmt.Sprintf("  Username: %s\n  Account: %s\n", f.Username, f.Id)
+}
+
+func newAccountAssignOptions(streams genericclioptions.IOStreams, globalOpts *globalflags.GlobalOptions) *accountAssignOptions {
 	return &accountAssignOptions{
-		flags:      flags,
-		printFlags: printer.NewPrintFlags(),
-		IOStreams:  streams,
+		printFlags:    printer.NewPrintFlags(),
+		IOStreams:     streams,
+		GlobalOptions: globalOpts,
 	}
 }
 
-// assignCmd assigns an aws account to user under osd-staging-2 by default unless osd-staging-1 is specified
-func newCmdAccountAssign(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *cobra.Command {
-	ops := newAccountAssignOptions(streams, flags)
+// assignCmd assigns an aws account to user under osd-staging-1
+func newCmdAccountAssign(streams genericclioptions.IOStreams, globalOpts *globalflags.GlobalOptions) *cobra.Command {
+	ops := newAccountAssignOptions(streams, globalOpts)
 	accountAssignCmd := &cobra.Command{
 		Use:               "assign",
 		Short:             "Assign account to user",
@@ -54,8 +70,11 @@ func newCmdAccountAssign(streams genericclioptions.IOStreams, flags *genericclio
 		},
 	}
 	ops.printFlags.AddFlags(accountAssignCmd)
-	accountAssignCmd.Flags().StringVarP(&ops.payerAccount, "payer-account", "p", "", "Payer account type")
+	accountAssignCmd.Flags().StringVarP(&ops.payerAccount, "payer-account", "p", osdStaging1, "Payer account type")
 	accountAssignCmd.Flags().StringVarP(&ops.username, "username", "u", "", "LDAP username")
+	accountAssignCmd.Flags().StringVarP(&ops.accountID, "account-id", "i", "", "(optional) Specific AWS account ID to assign")
+	accountAssignCmd.Flags().StringVar(&ops.accountName, "account-name", "", "(optional) Name for a newly created account; recommended pattern: <scope>-<environment>-<purpose>[-<region>][-<sequence>]")
+	accountAssignCmd.Flags().BoolVarP(&ops.iamUser, "iam-user", "I", false, "(optional) Create an AWS IAM user and Access Key")
 
 	return accountAssignCmd
 }
@@ -64,9 +83,20 @@ func (o *accountAssignOptions) complete(cmd *cobra.Command, _ []string) error {
 	if o.username == "" {
 		return cmdutil.UsageErrorf(cmd, "LDAP username was not provided")
 	}
-	if o.payerAccount == "" {
-		return cmdutil.UsageErrorf(cmd, "Payer account was not provided")
+
+	if o.accountName != "" && o.accountID != "" {
+		return cmdutil.UsageErrorf(cmd, "account name cannot be used when assigning an existing account ID")
 	}
+
+	if o.payerAccount != osdStaging1 {
+		return cmdutil.UsageErrorf(cmd, "payer account must be %s; %s is deprecated", osdStaging1, osdStaging2)
+	}
+
+	if os.Getenv(envKeyAWSAccountName) == osdStaging2 {
+		return cmdutil.UsageErrorf(cmd, "%s is set to %s, which is deprecated; use %s", envKeyAWSAccountName, osdStaging2, osdStaging1)
+	}
+
+	o.output = o.GlobalOptions.Output
 
 	return nil
 }
@@ -79,23 +109,44 @@ func (o *accountAssignOptions) run() error {
 		rootID          string
 	)
 
-	if o.payerAccount == "osd-staging-1" {
-		rootID = OSDStaging1RootID
-		destinationOU = OSDStaging1OuID
-	} else if o.payerAccount == "osd-staging-2" {
-		rootID = OSDStaging2RootID
-		destinationOU = OSDStaging2OuID
-	} else {
-		return fmt.Errorf("invalid payer account provided")
-	}
+	rootID = OSDStaging1RootID
+	destinationOU = OSDStaging1AssignOuID
+
 	//Instantiate aws client
-	awsClient, err := awsprovider.NewAwsClient(o.payerAccount, "us-east-1", "")
+	awsProfile := o.payerAccount
+	if os.Getenv("AWS_ACCESS_KEY_ID") != "" && os.Getenv("AWS_SECRET_ACCESS_KEY") != "" {
+		awsProfile = ""
+	}
+
+	awsClient, err := awsprovider.NewAwsClient(awsProfile, "us-east-1", "")
 	if err != nil {
 		return err
 	}
 
 	o.awsClient = awsClient
-	accountAssignID, err = o.findUntaggedAccount(rootID)
+	// We support passing in an aws account ID to be assigned, or retrieving one for the user.
+	if o.accountID != "" {
+		accountAssignID = o.accountID
+		// ensure that the account we're assigning is not already owned
+		isOwned, err := isOwned(accountAssignID, &o.awsClient)
+		if err != nil {
+			return err
+		}
+		if isOwned {
+			return fmt.Errorf("the account you are attempting to assign is already owned, please use the 'unassign' command to unassign the account, or use 'assign' without a specific aws account id to be assigned one at random")
+		}
+
+		isSuspended, err := isSuspended(accountAssignID, o.awsClient)
+		if err != nil {
+			return err
+		}
+		if isSuspended {
+			return fmt.Errorf("the account you are attempting to assign is suspended, please use another account, or use 'assign' without a specific aws account id to be assigned one at random")
+		}
+
+	} else {
+		accountAssignID, err = o.findUntaggedAccount(rootID)
+	}
 
 	if err != nil {
 		// If the error returned is not because of a lack of accounts, return the error
@@ -103,8 +154,13 @@ func (o *accountAssignOptions) run() error {
 			return err
 		}
 		// otherwise, create a new account
-		seed := time.Now().UnixNano()
-		accountAssignID, err = o.buildAccount(seed)
+		accountName := o.accountName
+		if accountName == "" {
+			accountName = "rosa-dev-" + strings.ToLower(o.username)
+		}
+
+		accountAssignID, err = o.buildAccount(accountName)
+
 		if err != nil {
 			return err
 		}
@@ -120,7 +176,32 @@ func (o *accountAssignOptions) run() error {
 		return err
 	}
 
-	fmt.Fprintln(o.IOStreams.Out, accountAssignID)
+	resp := assignResponse{
+		Username: o.username,
+		Id:       accountAssignID,
+	}
+
+	err = outputflag.PrintResponse(o.output, resp)
+	if err != nil {
+		fmt.Println("Error while calling PrintResponse(): ", err.Error())
+	}
+
+	// Create an AWS IAM user if iamUser is true
+	if o.iamUser {
+		fmt.Printf("Creating AWS IAM user for account %s...\n\n", accountAssignID)
+		iamOptions := iamOptions{
+			awsAccountID: accountAssignID,
+			awsProfile:   awsProfile,
+			awsRegion:    "us-east-1",
+			kerberosUser: o.username,
+			rotate:       false,
+		}
+
+		err = iamOptions.run()
+		if err != nil {
+			return fmt.Errorf("error while creating AWS IAM user: %s", err)
+		}
+	}
 
 	return nil
 }
@@ -144,29 +225,32 @@ func (o *accountAssignOptions) findUntaggedAccount(rootOu string) (string, error
 		return "", ErrNoUntaggedAccounts
 	}
 
-	// Loop through accounts and check that it's untagged and assign ID to user
-	for _, a := range accounts.Accounts {
+	identity, err := o.awsClient.GetCallerIdentity(&sts.GetCallerIdentityInput{})
+	if err != nil {
+		return "", err
+	}
 
-		inputListTags := &organizations.ListTagsForResourceInput{
-			ResourceId: a.Id,
+	// Loop through accounts and check that it's an unowned dev account
+	for _, a := range accounts.Accounts {
+		if *a.Id == *identity.Account {
+			// Don't allow the payer account to be assigned to an individual user
+			continue
 		}
-		tags, err := o.awsClient.ListTagsForResource(inputListTags)
+
+		isAssignable, err := isUnassignedDevAccount(*a.Id, &o.awsClient)
 		if err != nil {
 			return "", err
 		}
 
-		hasNoOwnerClaimedTag := true
-
-		for _, t := range tags.Tags {
-			if *t.Key == "owner" || *t.Key == "claimed" {
-				hasNoOwnerClaimedTag = false
+		if isAssignable {
+			isSuspended, err := isSuspended(*a.Id, o.awsClient)
+			if err != nil {
+				return "", err
+			}
+			if !isSuspended {
+				accountAssignID = *a.Id
 				break
 			}
-		}
-
-		if hasNoOwnerClaimedTag {
-			accountAssignID = *a.Id
-			break
 		}
 	}
 
@@ -176,18 +260,104 @@ func (o *accountAssignOptions) findUntaggedAccount(rootOu string) (string, error
 	return accountAssignID, nil
 }
 
-func (o *accountAssignOptions) tagAccount(accountIdInput string) error {
+func isOwned(accountID string, awsClient *awsprovider.Client) (bool, error) {
+	inputListTags := &organizations.ListTagsForResourceInput{
+		ResourceId: &accountID,
+	}
+	tags, err := (*awsClient).ListTagsForResource(inputListTags)
+	if err != nil {
+		return false, err
+	}
 
+	for _, t := range tags.Tags {
+		if *t.Key == "owner" || *t.Key == "claimed" {
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func isUnassignedDevAccount(accountID string, awsClient *awsprovider.Client) (bool, error) {
+	inputListTags := &organizations.ListTagsForResourceInput{
+		ResourceId: &accountID,
+	}
+	tags, err := (*awsClient).ListTagsForResource(inputListTags)
+	if err != nil {
+		return false, err
+	}
+
+	hasOwnershipTag := false
+	hasDevServicePhase := false
+
+	for _, tag := range tags.Tags {
+		if *tag.Key == "owner" || *tag.Key == "claimed" {
+			hasOwnershipTag = true
+		}
+		if *tag.Key == "service-phase" && *tag.Value == "dev" {
+			hasDevServicePhase = true
+		}
+	}
+
+	return hasDevServicePhase && !hasOwnershipTag, nil
+}
+
+func isSuspended(accountIdInput string, awsClient awsprovider.Client) (bool, error) {
+	accountInfo, err := awsClient.DescribeAccount(
+		&organizations.DescribeAccountInput{
+			AccountId: &accountIdInput,
+		},
+	)
+
+	if err != nil {
+		return false, err
+	}
+
+	if accountInfo.Account.Status == "SUSPENDED" {
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (o *accountAssignOptions) tagAccount(accountId string) error {
+	ownerKey := "owner"
+	claimedKey := "claimed"
+	claimedValue := "true"
+	serviceNameKey := "service-name"
+	serviceNameValue := "rosa-internal"
+	costCenterKey := "cost-center"
+	costCenterValue := "732"
+	servicePhaseKey := "service-phase"
+	servicePhaseValue := "dev"
+	appCodeKey := "app-code"
+	appCodeValue := "OSD-002"
 	inputTag := &organizations.TagResourceInput{
-		ResourceId: aws.String(accountIdInput),
-		Tags: []*organizations.Tag{
+		ResourceId: &accountId,
+		Tags: []organizationTypes.Tag{
 			{
-				Key:   aws.String("owner"),
-				Value: aws.String(o.username),
+				Key:   &ownerKey,
+				Value: &o.username,
 			},
 			{
-				Key:   aws.String("claimed"),
-				Value: aws.String("true"),
+				Key:   &claimedKey,
+				Value: &claimedValue,
+			},
+			{
+				Key:   &serviceNameKey,
+				Value: &serviceNameValue,
+			},
+			{
+				Key:   &costCenterKey,
+				Value: &costCenterValue,
+			},
+			{
+				Key:   &servicePhaseKey,
+				Value: &servicePhaseValue,
+			},
+			{
+				Key:   &appCodeKey,
+				Value: &appCodeValue,
 			},
 		},
 	}
@@ -198,46 +368,50 @@ func (o *accountAssignOptions) tagAccount(accountIdInput string) error {
 	return nil
 }
 
-func (o *accountAssignOptions) buildAccount(seedVal int64) (string, error) {
+func (o *accountAssignOptions) buildAccount(accountName string) (string, error) {
 
 	fmt.Println("Creating account")
-	var newAccountId string
 
-	orgOutput, orgErr := o.createAccount(seedVal)
-	if orgErr != nil {
-
-		// If email already exists retry until a new email is generated
-		for orgErr == ErrEmailAlreadyExist {
-			seedVal = time.Now().UnixNano()
-			orgOutput, orgErr = o.createAccount(seedVal)
-			if orgErr == nil {
-				newAccountId = *orgOutput.CreateAccountStatus.AccountId
-				return newAccountId, nil
-			}
+	for range accountEmailGenerationAttempts {
+		email, err := generateAccountEmail()
+		if err != nil {
+			return "", err
 		}
-		return "", orgErr
+
+		orgOutput, err := o.createAccount(accountName, email)
+		if errors.Is(err, ErrEmailAlreadyExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+
+		return *orgOutput.CreateAccountStatus.AccountId, nil
 	}
 
-	newAccountId = *orgOutput.CreateAccountStatus.AccountId
-	return newAccountId, nil
+	return "", fmt.Errorf("unable to generate a unique account email after %d attempts: %w", accountEmailGenerationAttempts, ErrEmailAlreadyExist)
 }
 
-var ErrAwsAccountLimitExceeded error = fmt.Errorf("ErrAwsAccountLimitExceeded")
-var ErrEmailAlreadyExist error = fmt.Errorf("ErrEmailAlreadyExist")
-var ErrAwsInternalFailure error = fmt.Errorf("ErrAwsInternalFailure")
-var ErrAwsTooManyRequests error = fmt.Errorf("ErrAwsTooManyRequests")
-var ErrAwsFailedCreateAccount error = fmt.Errorf("ErrAwsFailedCreateAccount")
+var (
+	ErrAwsAccountLimitExceeded = fmt.Errorf("ErrAwsAccountLimitExceeded")
+	ErrEmailAlreadyExist       = fmt.Errorf("ErrEmailAlreadyExist")
+	ErrAwsInternalFailure      = fmt.Errorf("ErrAwsInternalFailure")
+	ErrAwsFailedCreateAccount  = fmt.Errorf("ErrAwsFailedCreateAccount")
+)
 
-func (o *accountAssignOptions) createAccount(seedVal int64) (*organizations.DescribeCreateAccountStatusOutput, error) {
+func generateAccountEmail() (string, error) {
+	randomBytes := make([]byte, 8)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", fmt.Errorf("failed to generate account email suffix: %w", err)
+	}
 
-	rand.Seed(seedVal)
-	randStr := RandomString(6)
-	accountName := "osd-creds-mgmt+" + randStr
-	email := accountName + "@redhat.com"
+	return fmt.Sprintf("osd-creds-mgmt+%s@redhat.com", hex.EncodeToString(randomBytes)), nil
+}
 
+func (o *accountAssignOptions) createAccount(accountName string, email string) (*organizations.DescribeCreateAccountStatusOutput, error) {
 	createInput := &organizations.CreateAccountInput{
-		AccountName: aws.String(accountName),
-		Email:       aws.String(email),
+		AccountName: &accountName,
+		Email:       &email,
 	}
 
 	createOutput, err := o.awsClient.CreateAccount(createInput)
@@ -257,11 +431,11 @@ func (o *accountAssignOptions) createAccount(seedVal int64) (*organizations.Desc
 		}
 
 		accountStatus = status
-		createStatus := *status.CreateAccountStatus.State
+		createStatus := status.CreateAccountStatus.State
 
 		if createStatus == "FAILED" {
 			var returnErr error
-			switch *status.CreateAccountStatus.FailureReason {
+			switch status.CreateAccountStatus.FailureReason {
 			case "ACCOUNT_LIMIT_EXCEEDED":
 				returnErr = ErrAwsAccountLimitExceeded
 			case "EMAIL_ALREADY_EXISTS":
@@ -283,22 +457,12 @@ func (o *accountAssignOptions) createAccount(seedVal int64) (*organizations.Desc
 	return accountStatus, nil
 }
 
-func RandomString(n int) string {
-	var letters = []byte("abcdefghijklmnopqrstuvwxyz0123456789")
-
-	s := make([]byte, n)
-	for i := range s {
-		s[i] = letters[rand.Intn(len(letters))]
-	}
-	return string(s)
-}
-
 func (o *accountAssignOptions) moveAccount(accountIdInput string, destOuInput string, rootIdInput string) error {
 
 	inputMove := &organizations.MoveAccountInput{
-		AccountId:           aws.String(accountIdInput),
-		DestinationParentId: aws.String(destOuInput),
-		SourceParentId:      aws.String(rootIdInput),
+		AccountId:           &accountIdInput,
+		DestinationParentId: &destOuInput,
+		SourceParentId:      &rootIdInput,
 	}
 
 	_, err := o.awsClient.MoveAccount(inputMove)

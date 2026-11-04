@@ -1,0 +1,863 @@
+package utils
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+
+	ocmConfig "github.com/openshift-online/ocm-common/pkg/ocm/config"
+	sdk "github.com/openshift-online/ocm-sdk-go"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+)
+
+func resetEnvVars(t *testing.T) {
+	errUrl := os.Unsetenv("OCM_URL")
+	if errUrl != nil {
+		t.Fatal("Error setting environment variables")
+	}
+}
+
+func TestGenerateQuery(t *testing.T) {
+	tests := []struct {
+		name              string
+		clusterIdentifier string
+		want              string
+	}{
+		{
+			name:              "valid internal ID",
+			clusterIdentifier: "261kalm3uob0vegg1c7h9o7r5k9t64ji",
+			want:              "(id = '261kalm3uob0vegg1c7h9o7r5k9t64ji')",
+		},
+		{
+			name:              "valid wrong internal ID with upper case",
+			clusterIdentifier: "261kalm3uob0vegg1c7h9o7r5k9t64jI",
+			want:              "(display_name like '261kalm3uob0vegg1c7h9o7r5k9t64jI')",
+		},
+		{
+			name:              "valid wrong internal ID too short",
+			clusterIdentifier: "261kalm3uob0vegg1c7h9o7r5k9t64j",
+			want:              "(display_name like '261kalm3uob0vegg1c7h9o7r5k9t64j')",
+		},
+		{
+			name:              "valid wrong internal ID too long",
+			clusterIdentifier: "261kalm3uob0vegg1c7h9o7r5k9t64jix",
+			want:              "(display_name like '261kalm3uob0vegg1c7h9o7r5k9t64jix')",
+		},
+		{
+			name:              "valid external ID",
+			clusterIdentifier: "c1f562af-fb22-42c5-aa07-6848e1eeee9c",
+			want:              "(external_id = 'c1f562af-fb22-42c5-aa07-6848e1eeee9c')",
+		},
+		{
+			name:              "valid display name",
+			clusterIdentifier: "hs-mc-773jpgko0",
+			want:              "(display_name like 'hs-mc-773jpgko0')",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := GenerateQuery(tt.clusterIdentifier); got != tt.want {
+				t.Errorf("GenerateQuery(%s) = %v, want %v", tt.clusterIdentifier, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestGetOcmConfigFromFilePath tests the GetOcmConfigFromFilePath function which loads
+// OCM configuration from a JSON file at the provided path. It validates that the function
+// correctly handles valid config files, non-existent files, empty files, and malformed JSON.
+func TestGetOcmConfigFromFilePath(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFunc   func(t *testing.T) string
+		wantErr     bool
+		errContains string
+		checkConfig func(*testing.T, *ocmConfig.Config)
+	}{
+		{
+			// Test that a valid OCM config file is successfully parsed and loaded with correct values
+			name: "valid config file",
+			setupFunc: func(t *testing.T) string {
+				tmpDir := t.TempDir()
+				configFile := filepath.Join(tmpDir, "ocm.json")
+				config := ocmConfig.Config{
+					AccessToken:  "test-access-token",
+					RefreshToken: "test-refresh-token",
+					URL:          "https://api.openshift.com",
+					ClientID:     "test-client-id",
+					ClientSecret: "test-client-secret",
+				}
+				data, err := json.Marshal(config) //nolint:gosec // G117 false positive — test fixture with fake credentials
+				if err != nil {
+					t.Fatalf("failed to marshal config: %v", err)
+				}
+				if err := os.WriteFile(configFile, data, 0600); err != nil {
+					t.Skipf("failed to write config file (insufficient permissions?): %v", err)
+				}
+				return configFile
+			},
+			wantErr: false,
+			checkConfig: func(t *testing.T, cfg *ocmConfig.Config) {
+				if cfg == nil {
+					t.Error("expected non-nil config")
+					return
+				}
+				if cfg.AccessToken != "test-access-token" {
+					t.Errorf("expected AccessToken 'test-access-token', got '%s'", cfg.AccessToken)
+				}
+				if cfg.RefreshToken != "test-refresh-token" {
+					t.Errorf("expected RefreshToken 'test-refresh-token', got '%s'", cfg.RefreshToken)
+				}
+				if cfg.URL != "https://api.openshift.com" {
+					t.Errorf("expected URL 'https://api.openshift.com', got '%s'", cfg.URL)
+				}
+				if cfg.ClientID != "test-client-id" {
+					t.Errorf("expected ClientID 'test-client-id', got '%s'", cfg.ClientID)
+				}
+				if cfg.ClientSecret != "test-client-secret" {
+					t.Errorf("expected ClientSecret 'test-client-secret', got '%s'", cfg.ClientSecret)
+				}
+			},
+		},
+		{
+			// Test that attempting to load a non-existent file returns an appropriate error
+			name: "non-existent file",
+			setupFunc: func(t *testing.T) string {
+				return "/nonexistent/path/ocm.json"
+			},
+			wantErr:     true,
+			errContains: "can't read config file",
+		},
+		{
+			// Test that an empty config file returns an error
+			name: "empty config file",
+			setupFunc: func(t *testing.T) string {
+				tmpDir := t.TempDir()
+				configFile := filepath.Join(tmpDir, "ocm.json")
+				if err := os.WriteFile(configFile, []byte(""), 0600); err != nil {
+					t.Skipf("failed to write empty file (insufficient permissions?): %v", err)
+				}
+				return configFile
+			},
+			wantErr:     true,
+			errContains: "empty config file",
+		},
+		{
+			// Test that a file with invalid JSON syntax returns a parse error
+			name: "invalid json",
+			setupFunc: func(t *testing.T) string {
+				tmpDir := t.TempDir()
+				configFile := filepath.Join(tmpDir, "ocm.json")
+				if err := os.WriteFile(configFile, []byte("{invalid json}"), 0600); err != nil {
+					t.Skipf("failed to write invalid json (insufficient permissions?): %v", err)
+				}
+				return configFile
+			},
+			wantErr:     true,
+			errContains: "can't parse config file",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filePath := tt.setupFunc(t)
+			cfg, err := GetOcmConfigFromFilePath(filePath)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("GetOcmConfigFromFilePath() expected error but got none")
+				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
+					t.Errorf("GetOcmConfigFromFilePath() error = %v, want error containing %v", err, tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("GetOcmConfigFromFilePath() unexpected error = %v", err)
+				}
+				if cfg == nil {
+					t.Errorf("GetOcmConfigFromFilePath() returned nil config")
+				}
+				if tt.checkConfig != nil {
+					tt.checkConfig(t, cfg)
+				}
+			}
+		})
+	}
+}
+
+// TestGetOCMSdkConnBuilderFromConfig tests the GetOCMSdkConnBuilderFromConfig function
+// which creates an OCM SDK connection builder from a provided OCM config object.
+// It validates nil config handling and successful builder creation with valid config.
+func TestGetOCMSdkConnBuilderFromConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *ocmConfig.Config
+		wantErr bool
+	}{
+		{
+			// Test that a valid OCM config successfully creates a connection builder
+			name: "valid config",
+			config: &ocmConfig.Config{
+				AccessToken:  "test-access-token",
+				RefreshToken: "test-refresh-token",
+				URL:          "https://api.openshift.com",
+				ClientID:     "test-client-id",
+				ClientSecret: "test-client-secret",
+			},
+			wantErr: false,
+		},
+		{
+			// Test that passing a nil config returns an error
+			name:    "nil config",
+			config:  nil,
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			builder, err := GetOCMSdkConnBuilderFromConfig(tt.config)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("GetOCMSdkConnBuilderFromConfig() expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("GetOCMSdkConnBuilderFromConfig() unexpected error = %v", err)
+				}
+				if builder == nil {
+					t.Errorf("GetOCMSdkConnBuilderFromConfig() returned nil builder")
+				}
+			}
+		})
+	}
+}
+
+// TestGetOCMSdkConnBuilderFromFilePath tests the GetOCMSdkConnBuilderFromFilePath function
+// which reads an OCM config file and creates an SDK connection builder from it.
+// It validates both successful builder creation and error handling for invalid file paths.
+func TestGetOCMSdkConnBuilderFromFilePath(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFunc   func(t *testing.T) string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			// Test that a valid config file successfully creates a connection builder
+			name: "valid config file",
+			setupFunc: func(t *testing.T) string {
+				tmpDir := t.TempDir()
+				configFile := filepath.Join(tmpDir, "ocm.json")
+				config := ocmConfig.Config{
+					AccessToken:  "test-access-token",
+					RefreshToken: "test-refresh-token",
+					URL:          "https://api.openshift.com",
+					ClientID:     "test-client-id",
+					ClientSecret: "test-client-secret",
+				}
+				data, err := json.Marshal(config) //nolint:gosec // G117 false positive — test fixture with fake credentials
+				if err != nil {
+					t.Fatalf("failed to marshal config: %v", err)
+				}
+				if err := os.WriteFile(configFile, data, 0600); err != nil {
+					t.Skipf("failed to write config file (insufficient permissions?): %v", err)
+				}
+				return configFile
+			},
+			wantErr: false,
+		},
+		{
+			// Test that attempting to load from a non-existent file returns an error
+			name: "non-existent file",
+			setupFunc: func(t *testing.T) string {
+				return "/nonexistent/path/ocm.json"
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filePath := tt.setupFunc(t)
+			builder, err := GetOCMSdkConnBuilderFromFilePath(filePath)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("GetOCMSdkConnBuilderFromFilePath() expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("GetOCMSdkConnBuilderFromFilePath() unexpected error = %v", err)
+				}
+				if builder == nil {
+					t.Errorf("GetOCMSdkConnBuilderFromFilePath() returned nil builder")
+				}
+			}
+		})
+	}
+}
+
+// TestGetOCMSdkConnFromFilePath tests the GetOCMSdkConnFromFilePath function which
+// reads an OCM config file and creates a fully initialized OCM SDK connection from it.
+// It validates error handling for non-existent files and empty config files.
+func TestGetOCMSdkConnFromFilePath(t *testing.T) {
+	tests := []struct {
+		name      string
+		setupFunc func(t *testing.T) string
+		wantErr   bool
+	}{
+		{
+			// Test that attempting to create a connection from a non-existent file returns an error
+			name: "non-existent file",
+			setupFunc: func(t *testing.T) string {
+				return "/nonexistent/path/ocm.json"
+			},
+			wantErr: true,
+		},
+		{
+			// Test that an empty config file returns an error when trying to build a connection
+			name: "empty config file",
+			setupFunc: func(t *testing.T) string {
+				tmpDir := t.TempDir()
+				configFile := filepath.Join(tmpDir, "ocm.json")
+				if err := os.WriteFile(configFile, []byte(""), 0600); err != nil {
+					t.Skipf("failed to write empty file (insufficient permissions?): %v", err)
+				}
+				return configFile
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filePath := tt.setupFunc(t)
+			conn, err := GetOCMSdkConnFromFilePath(filePath)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("GetOCMSdkConnFromFilePath() expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("GetOCMSdkConnFromFilePath() unexpected error = %v", err)
+				}
+				if conn != nil {
+					defer conn.Close()
+				}
+			}
+		})
+	}
+}
+
+// TestGetHiveShardWithConn tests the GetHiveShardWithConn function which retrieves
+// the hive shard URL for a cluster using a provided OCM SDK connection.
+// It validates that the function properly handles nil connection inputs.
+func TestGetHiveShardWithConn(t *testing.T) {
+	tests := []struct {
+		name      string
+		clusterID string
+		conn      *sdk.Connection
+		wantErr   bool
+	}{
+		{
+			// Test that passing a nil OCM connection returns an error
+			name:      "nil connection",
+			clusterID: "test-cluster-id",
+			conn:      nil,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := GetHiveShardWithConn(tt.clusterID, tt.conn)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("GetHiveShardWithConn() expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("GetHiveShardWithConn() unexpected error = %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestGetHiveClusterWithConn tests the GetHiveClusterWithConn function which fetches
+// the hive cluster information using separate OCM connections for the target cluster
+// and hive cluster. It validates the function's ability to create temporary connections
+// when nil connections are provided.
+func TestGetHiveClusterWithConn(t *testing.T) {
+	tests := []struct {
+		name       string
+		clusterID  string
+		clusterOCM *sdk.Connection
+		hiveOCM    *sdk.Connection
+		wantErr    bool
+	}{
+		{
+			// Test that when both connections are nil, the function attempts to create a temporary connection
+			// This will fail without proper OCM environment variables set
+			name:       "both connections nil - should create temporary connection",
+			clusterID:  "test-cluster-id",
+			clusterOCM: nil,
+			hiveOCM:    nil,
+			wantErr:    true, // will fail when trying to create connection without proper env vars
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := GetHiveClusterWithConn(tt.clusterID, tt.clusterOCM, tt.hiveOCM)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("GetHiveClusterWithConn() expected error but got none")
+				}
+			} else {
+				if err != nil {
+					t.Errorf("GetHiveClusterWithConn() unexpected error = %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestGetManagementClusterWithConn(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		hypershiftBody string
+		wantErr        string
+	}{
+		{
+			name:           "resolves management cluster",
+			hypershiftBody: `{"management_cluster":"management-cluster"}`,
+		},
+		{
+			name:           "management cluster missing",
+			hypershiftBody: `{}`,
+			wantErr:        "no management cluster found for hcp-cluster",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				switch r.URL.Path {
+				case "/token":
+					if _, err := w.Write([]byte(`{"access_token":"eyJhbGciOiJub25lIn0.eyJleHAiOjQxMDAwMDAwMDB9.signature","expires_in":3600}`)); err != nil { // notsecret
+						t.Errorf("writing token response: %v", err)
+					}
+				case "/api/clusters_mgmt/v1/clusters/hcp-cluster/hypershift":
+					if _, err := w.Write([]byte(tt.hypershiftBody)); err != nil {
+						t.Errorf("writing hypershift response: %v", err)
+					}
+				case "/api/clusters_mgmt/v1/clusters":
+					if _, err := w.Write([]byte(`{"total":1,"items":[{"id":"management-cluster-id","name":"management-cluster"}]}`)); err != nil {
+						t.Errorf("writing cluster response: %v", err)
+					}
+				default:
+					t.Errorf("unexpected request path %s", r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+
+			conn, err := sdk.NewConnectionBuilder().
+				URL(server.URL).
+				TokenURL(server.URL+"/token").
+				Insecure(true).
+				Client("client", "secret").
+				Build()
+			if err != nil {
+				t.Fatalf("building OCM connection: %v", err)
+			}
+			defer conn.Close()
+
+			cluster, err := GetManagementClusterWithConn(context.Background(), "hcp-cluster", conn)
+			if tt.wantErr != "" {
+				if err == nil || !contains(err.Error(), tt.wantErr) {
+					t.Fatalf("GetManagementClusterWithConn() error = %v, want error containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetManagementClusterWithConn() error = %v", err)
+			}
+			if cluster.ID() != "management-cluster-id" || cluster.Name() != "management-cluster" {
+				t.Fatalf("GetManagementClusterWithConn() = (%s, %s), want (management-cluster-id, management-cluster)", cluster.ID(), cluster.Name())
+			}
+		})
+	}
+
+	_, err := GetManagementClusterWithConn(context.Background(), "hcp-cluster", nil)
+	if err == nil || !contains(err.Error(), "ocm connection is required") {
+		t.Fatalf("GetManagementClusterWithConn() error = %v, want missing connection error", err)
+	}
+}
+
+// TestGetOCMConfigFromEnv tests the GetOCMConfigFromEnv function which loads
+// OCM configuration from environment variables and default file locations.
+// It validates the function's ability to handle different config file locations
+// including OCM_CONFIG env var, ~/.ocm.json, and $XDG_CONFIG_HOME/ocm/ocm.json.
+func TestGetOCMConfigFromEnv(t *testing.T) {
+	tests := []struct {
+		name        string
+		setupFunc   func(t *testing.T) func()
+		wantErr     bool
+		errContains string
+		checkConfig func(*testing.T, *ocmConfig.Config)
+	}{
+		{
+			// Test loading config from a custom OCM_CONFIG environment variable path
+			name: "with OCM_CONFIG env var set to valid file",
+			setupFunc: func(t *testing.T) func() {
+				tmpDir := t.TempDir()
+				configFile := filepath.Join(tmpDir, "custom-ocm.json")
+				config := ocmConfig.Config{
+					AccessToken:  "test-token-from-env",
+					RefreshToken: "test-refresh",
+					URL:          "https://api.openshift.com",
+				}
+				data, err := json.Marshal(config) //nolint:gosec // G117 false positive — test fixture with fake credentials
+				if err != nil {
+					t.Fatalf("failed to marshal config: %v", err)
+				}
+				if err := os.WriteFile(configFile, data, 0600); err != nil {
+					t.Skipf("failed to write config file (insufficient permissions?): %v", err)
+				}
+				oldVal := os.Getenv("OCM_CONFIG")
+				os.Setenv("OCM_CONFIG", configFile)
+				return func() {
+					os.Setenv("OCM_CONFIG", oldVal)
+				}
+			},
+			wantErr: false,
+			checkConfig: func(t *testing.T, cfg *ocmConfig.Config) {
+				if cfg == nil {
+					t.Error("expected non-nil config")
+					return
+				}
+				if cfg.AccessToken != "test-token-from-env" {
+					t.Errorf("expected AccessToken 'test-token-from-env', got '%s'", cfg.AccessToken)
+				}
+			},
+		},
+		{
+			// Test that when no config file exists, an empty config is returned without error
+			name: "no config file exists - returns empty config",
+			setupFunc: func(t *testing.T) func() {
+				// Set OCM_CONFIG to a non-existent path
+				oldVal := os.Getenv("OCM_CONFIG")
+				os.Setenv("OCM_CONFIG", "/nonexistent/path/ocm.json")
+				return func() {
+					os.Setenv("OCM_CONFIG", oldVal)
+				}
+			},
+			wantErr: false,
+			checkConfig: func(t *testing.T, cfg *ocmConfig.Config) {
+				if cfg == nil {
+					t.Error("expected non-nil empty config")
+				}
+			},
+		},
+		{
+			// Test that a malformed config file returns a parse error
+			name: "invalid json in config file",
+			setupFunc: func(t *testing.T) func() {
+				tmpDir := t.TempDir()
+				configFile := filepath.Join(tmpDir, "invalid-ocm.json")
+				if err := os.WriteFile(configFile, []byte("{invalid json}"), 0600); err != nil {
+					t.Skipf("failed to write invalid json (insufficient permissions?): %v", err)
+				}
+				oldVal := os.Getenv("OCM_CONFIG")
+				os.Setenv("OCM_CONFIG", configFile)
+				return func() {
+					os.Setenv("OCM_CONFIG", oldVal)
+				}
+			},
+			wantErr:     true,
+			errContains: "can't parse config file",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cleanup := tt.setupFunc(t)
+			defer cleanup()
+
+			cfg, err := GetOCMConfigFromEnv()
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("GetOCMConfigFromEnv() expected error but got none")
+				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
+					t.Errorf("GetOCMConfigFromEnv() error = %v, want error containing %v", err, tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("GetOCMConfigFromEnv() unexpected error = %v", err)
+				}
+				if tt.checkConfig != nil {
+					tt.checkConfig(t, cfg)
+				}
+			}
+		})
+	}
+}
+
+// TestValidateAndResolveOcmUrl tests the ValidateAndResolveOcmUrl function which validates
+// and resolves OCM URL aliases without making any network calls. This is a pure validation test.
+func TestValidateAndResolveOcmUrl(t *testing.T) {
+	tests := []struct {
+		name        string
+		ocmUrl      string
+		wantUrl     string
+		wantErr     bool
+		errContains string
+	}{
+		{
+			// Test that an empty URL returns an error
+			name:        "empty URL",
+			ocmUrl:      "",
+			wantErr:     true,
+			errContains: "empty OCM URL",
+		},
+		{
+			// Test that an invalid alias returns an error with valid aliases listed
+			name:        "invalid URL alias",
+			ocmUrl:      "invalid-alias",
+			wantErr:     true,
+			errContains: "invalid OCM_URL found",
+		},
+		{
+			// Test that 'production' alias is correctly resolved
+			name:    "production alias recognized",
+			ocmUrl:  "production",
+			wantUrl: "https://api.openshift.com",
+			wantErr: false,
+		},
+		{
+			// Test that 'prod' alias is correctly resolved
+			name:    "prod alias recognized",
+			ocmUrl:  "prod",
+			wantUrl: "https://api.openshift.com",
+			wantErr: false,
+		},
+		{
+			// Test that 'staging' alias is correctly resolved
+			name:    "staging alias recognized",
+			ocmUrl:  "staging",
+			wantUrl: "https://api.stage.openshift.com",
+			wantErr: false,
+		},
+		{
+			// Test that 'stage' alias is correctly resolved
+			name:    "stage alias recognized",
+			ocmUrl:  "stage",
+			wantUrl: "https://api.stage.openshift.com",
+			wantErr: false,
+		},
+		{
+			// Test that 'integration' alias is correctly resolved
+			name:    "integration alias recognized",
+			ocmUrl:  "integration",
+			wantUrl: "https://api.integration.openshift.com",
+			wantErr: false,
+		},
+		{
+			// Test that 'int' alias is correctly resolved
+			name:    "int alias recognized",
+			ocmUrl:  "int",
+			wantUrl: "https://api.integration.openshift.com",
+			wantErr: false,
+		},
+		{
+			// Test that full production URL is accepted
+			name:    "full production URL",
+			ocmUrl:  "https://api.openshift.com",
+			wantUrl: "https://api.openshift.com",
+			wantErr: false,
+		},
+		{
+			// Test that full staging URL is accepted
+			name:    "full staging URL",
+			ocmUrl:  "https://api.stage.openshift.com",
+			wantUrl: "https://api.stage.openshift.com",
+			wantErr: false,
+		},
+		{
+			// Test that gov cloud aliases are recognized
+			name:    "production gov alias recognized",
+			ocmUrl:  "productiongov",
+			wantUrl: "https://api-admin.openshiftusgov.com",
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resolvedUrl, err := ValidateAndResolveOcmUrl(tt.ocmUrl)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ValidateAndResolveOcmUrl() expected error but got none")
+				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
+					t.Errorf("ValidateAndResolveOcmUrl() error = %v, want error containing %v", err, tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("ValidateAndResolveOcmUrl() unexpected error = %v", err)
+				}
+				if resolvedUrl != tt.wantUrl {
+					t.Errorf("ValidateAndResolveOcmUrl() = %v, want %v", resolvedUrl, tt.wantUrl)
+				}
+			}
+		})
+	}
+}
+
+// TestGetHiveBPClientForCluster tests the GetHiveBPClientForCluster function which creates a
+// backplane client connection to a hive cluster. It validates input validation and
+// error handling for empty cluster IDs.
+// Note: Successful connection creation requires valid cluster ID, OCM credentials,
+// and accessible hive cluster. These scenarios are tested in integration tests or
+// the hive-login test command.
+func TestGetHiveBPClientForCluster(t *testing.T) {
+	tests := []struct {
+		name            string
+		clusterID       string
+		elevationReason string
+		hiveOCMURL      string
+		wantErr         bool
+		errContains     string
+	}{
+		{
+			// Test that an empty cluster ID returns an error
+			name:            "empty cluster ID",
+			clusterID:       "",
+			elevationReason: "",
+			hiveOCMURL:      "",
+			wantErr:         true,
+			errContains:     "empty target cluster ID",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := GetHiveBPClientForCluster(tt.clusterID, client.Options{}, tt.elevationReason, tt.hiveOCMURL)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("GetHiveBPClientForCluster() expected error but got none")
+				} else if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
+					t.Errorf("GetHiveBPClientForCluster() error = %v, want error containing %v", err, tt.errContains)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("GetHiveBPClientForCluster() unexpected error = %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestIsHiveClusterName(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{name: "hivep01ue1", want: true},
+		{name: "hives02ue1", want: true},
+		{name: "hivei01ue1", want: true},
+		{name: "HIVEP01UE1", want: true},
+		{name: "hivep01", want: true},
+		{name: "hivep01-customer", want: false},
+		{name: "hivep01ue1-prod", want: false},
+		{name: "hive", want: false},
+		{name: "hivep", want: false},
+		{name: "hivex01ue1", want: false},
+		{name: "hs-mc-773jpgko0", want: false},
+		{name: "prod-customer-01", want: false},
+		{name: "", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsHiveClusterName(tt.name); got != tt.want {
+				t.Errorf("IsHiveClusterName(%q) = %v, want %v", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClassifyInfrastructureCluster(t *testing.T) {
+	tests := []struct {
+		name         string
+		clusterName  string
+		isManagement bool
+		isService    bool
+		want         string
+	}{
+		{
+			name:        "customer cluster",
+			clusterName: "prod-customer-01",
+			want:        "",
+		},
+		{
+			name:         "management cluster",
+			clusterName:  "hs-mc-773jpgko0",
+			isManagement: true,
+			want:         "Management",
+		},
+		{
+			name:        "service cluster",
+			clusterName: "hs-sc-abc",
+			isService:   true,
+			want:        "Service",
+		},
+		{
+			name:         "service cluster also flagged as management",
+			clusterName:  "hs-sc-abc",
+			isManagement: true,
+			isService:    true,
+			want:         "Service",
+		},
+		{
+			name:        "customer name sharing hive prefix",
+			clusterName: "hivep01-customer",
+			want:        "",
+		},
+		{
+			name:        "hive shard by name",
+			clusterName: "hivep01ue1",
+			want:        "Hive",
+		},
+		{
+			name:         "management label wins over hive-like name",
+			clusterName:  "hivep01ue1",
+			isManagement: true,
+			want:         "Management",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ClassifyInfrastructureCluster(tt.clusterName, tt.isManagement, tt.isService)
+			if got != tt.want {
+				t.Errorf("ClassifyInfrastructureCluster() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// Helper function to check if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
+		(len(s) > 0 && len(substr) > 0 && stringContains(s, substr)))
+}
+
+func stringContains(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

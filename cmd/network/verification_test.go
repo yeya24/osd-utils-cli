@@ -1,0 +1,996 @@
+package network
+
+import (
+	"context"
+	"fmt"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/ec2"
+	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	cmv1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
+	"github.com/openshift-online/ocm-sdk-go/logging"
+	hivev1 "github.com/openshift/hive/apis/hive/v1"
+	"github.com/openshift/osd-network-verifier/pkg/data/cloud"
+	"github.com/openshift/osd-network-verifier/pkg/data/cpu"
+	"github.com/openshift/osd-network-verifier/pkg/output"
+	"github.com/openshift/osd-network-verifier/pkg/probes/curl"
+	onv "github.com/openshift/osd-network-verifier/pkg/verifier"
+	"github.com/openshift/osdctl/pkg/servicelog"
+	"github.com/openshift/osdctl/pkg/utils"
+	"github.com/stretchr/testify/assert"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+)
+
+func newTestLogger(t *testing.T) logging.Logger {
+	builder := logging.NewGoLoggerBuilder()
+	builder.Debug(true)
+	logger, err := builder.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return logger
+}
+
+// newTestCluster assembles a *cmv1.Cluster while handling the error to help out with inline test-case generation
+func newTestCluster(t *testing.T, cb *cmv1.ClusterBuilder) *cmv1.Cluster {
+	cluster, err := cb.Build()
+	if err != nil {
+		t.Fatalf("failed to build cluster: %s", err)
+	}
+
+	return cluster
+}
+
+func TestEgressVerification_ValidateInput(t *testing.T) {
+	tests := []struct {
+		name      string
+		ev        *EgressVerification
+		wantError bool
+	}{
+		{
+			name: "valid_single_subnet",
+			ev: &EgressVerification{
+				SubnetIds: []string{"subnet-123"},
+			},
+			wantError: false,
+		},
+		{
+			name: "invalid_comma_separated_subnets",
+			ev: &EgressVerification{
+				SubnetIds: []string{"subnet-123,subnet-456"},
+			},
+			wantError: true,
+		},
+		{
+			name: "valid_multiple_subnet_flags",
+			ev: &EgressVerification{
+				SubnetIds: []string{"subnet-123", "subnet-456"},
+			},
+			wantError: false,
+		},
+		{
+			name: "valid_hive_ocm_url_production",
+			ev: &EgressVerification{
+				SubnetIds:  []string{"subnet-123"},
+				hiveOcmUrl: "production",
+			},
+			wantError: false,
+		},
+		{
+			name: "valid_hive_ocm_url_staging",
+			ev: &EgressVerification{
+				SubnetIds:  []string{"subnet-123"},
+				hiveOcmUrl: "staging",
+			},
+			wantError: false,
+		},
+		{
+			name: "valid_hive_ocm_url_integration",
+			ev: &EgressVerification{
+				SubnetIds:  []string{"subnet-123"},
+				hiveOcmUrl: "integration",
+			},
+			wantError: false,
+		},
+		{
+			name: "valid_hive_ocm_url_full_url",
+			ev: &EgressVerification{
+				SubnetIds:  []string{"subnet-123"},
+				hiveOcmUrl: "https://api.openshift.com",
+			},
+			wantError: false,
+		},
+		{
+			name: "invalid_hive_ocm_url",
+			ev: &EgressVerification{
+				SubnetIds:  []string{"subnet-123"},
+				hiveOcmUrl: "invalid-environment",
+			},
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.ev.validateInput()
+			if tt.wantError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestHiveOcmUrlValidation tests the validation of --hive-ocm-url flag
+func TestHiveOcmUrlValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		hiveOcmUrl  string
+		expectErr   bool
+		errContains string
+	}{
+		{
+			name:       "Valid hive-ocm-url (production)",
+			hiveOcmUrl: "production",
+			expectErr:  false,
+		},
+		{
+			name:       "Valid hive-ocm-url (staging)",
+			hiveOcmUrl: "staging",
+			expectErr:  false,
+		},
+		{
+			name:       "Valid hive-ocm-url (integration)",
+			hiveOcmUrl: "integration",
+			expectErr:  false,
+		},
+		{
+			name:       "Valid hive-ocm-url (full URL)",
+			hiveOcmUrl: "https://api.openshift.com",
+			expectErr:  false,
+		},
+		{
+			name:        "Invalid hive-ocm-url",
+			hiveOcmUrl:  "invalid-environment",
+			expectErr:   true,
+			errContains: "invalid OCM_URL",
+		},
+		{
+			name:        "Empty hive-ocm-url",
+			hiveOcmUrl:  "",
+			expectErr:   true,
+			errContains: "empty OCM URL",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// This simulates the validation that occurs in the validateInput() method
+			_, err := utils.ValidateAndResolveOcmUrl(tt.hiveOcmUrl)
+
+			if tt.expectErr {
+				if err == nil {
+					t.Errorf("Expected error containing '%s', but got nil", tt.errContains)
+				} else if !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("Expected error containing '%s', but got: %v", tt.errContains, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Expected no error, but got: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestEgressVerification_GetPlatform(t *testing.T) {
+	tests := []struct {
+		name         string
+		ev           *EgressVerification
+		cluster      *cmv1.Cluster
+		wantPlatform cloud.Platform
+		wantError    bool
+	}{
+		{
+			name: "explicit_platform_aws-hcp",
+			ev: &EgressVerification{
+				platformName: "aws-hcp",
+			},
+			wantPlatform: cloud.AWSHCP,
+			wantError:    false,
+		},
+		{
+			name: "invalid_platform",
+			ev: &EgressVerification{
+				platformName: "invalid-platform",
+			},
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+
+			platform, err := tt.ev.getPlatform()
+			if tt.wantError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.wantPlatform, platform)
+			}
+		})
+	}
+}
+
+func TestEgressVerification_GetPlatformFromCluster(t *testing.T) {
+	tests := []struct {
+		name          string
+		ev            *EgressVerification
+		cluster       *cmv1.Cluster
+		wantPlatform  cloud.Platform
+		wantError     bool
+		setupMockFunc func() *cmv1.Cluster
+	}{
+		{
+			name: "hypershift_enabled_defaults_to_HCP",
+			ev: &EgressVerification{
+				platformName: "aws-hcp",
+			},
+			setupMockFunc: func() *cmv1.Cluster {
+				cluster, err := cmv1.NewCluster().Hypershift(cmv1.NewHypershift()).AWS(cmv1.NewAWS()).CloudProvider(cmv1.NewCloudProvider().ID("aws")).Build()
+				if err != nil {
+					t.Fatal(err)
+				}
+				return cluster
+			},
+			wantPlatform: cloud.AWSHCP,
+			wantError:    false,
+		},
+		{
+			name: "classic_cluster_without_hypershift",
+			ev:   &EgressVerification{},
+			setupMockFunc: func() *cmv1.Cluster {
+				cluster, err := cmv1.NewCluster().AWS(cmv1.NewAWS()).CloudProvider(cmv1.NewCloudProvider().ID("aws")).Build()
+				if err != nil {
+					t.Fatal(err)
+				}
+				return cluster
+			},
+			wantPlatform: cloud.AWSClassic,
+			wantError:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+
+			tt.ev.cluster = tt.setupMockFunc()
+
+			platform, err := tt.ev.getPlatform()
+			if tt.wantError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tt.wantPlatform, platform)
+			}
+		})
+	}
+}
+
+func TestEgressVerification_DefaultValidateEgressInput(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name     string
+		ev       *EgressVerification
+		platform cloud.Platform
+		want     *onv.ValidateEgressInput
+	}{
+		{
+			name: "basic_configuration",
+			ev: &EgressVerification{
+				cpuArch:       cpu.ArchX86,
+				NoTls:         false,
+				EgressTimeout: 5 * time.Second,
+				Probe:         "curl",
+			},
+			platform: cloud.AWSClassic,
+			want: &onv.ValidateEgressInput{
+				Ctx:             ctx,
+				CPUArchitecture: cpu.ArchX86,
+				PlatformType:    cloud.AWSClassic,
+				Probe:           curl.Probe{},
+				Timeout:         5 * time.Second,
+				Tags:            networkVerifierDefaultTags,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.ev.defaultValidateEgressInput(ctx, tt.platform)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want.CPUArchitecture, got.CPUArchitecture)
+			assert.Equal(t, tt.want.PlatformType, got.PlatformType)
+			assert.Equal(t, tt.want.Tags, got.Tags)
+		})
+	}
+}
+
+func TestGenerateServiceLog(t *testing.T) {
+	testCases := []struct {
+		name   string
+		output *output.Output
+		want   servicelog.PostRequest
+	}{
+		{
+			name: "with_failures",
+			output: func() *output.Output {
+				o := &output.Output{}
+				o.SetEgressFailures([]string{
+					"https://test1.com",
+					"https://test2.com",
+				})
+				return o
+			}(),
+			want: servicelog.PostRequest{
+				Template:       blockedEgressTemplateUrl,
+				TemplateParams: []string{"URLS=https://test1.com,https://test2.com"},
+				SkipLinkCheck:  true,
+			},
+		},
+		{
+			name:   "no_failures",
+			output: &output.Output{}, // Empty output for no failures
+			want:   servicelog.PostRequest{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := generateServiceLog(tc.output)
+			assert.Equal(t, tc.want.Template, got.Template)
+			assert.Equal(t, tc.want.TemplateParams, got.TemplateParams)
+		})
+	}
+}
+
+func TestEgressVerification_GetCABundle(t *testing.T) {
+	tests := []struct {
+		name      string
+		ev        *EgressVerification
+		setupFunc func(*EgressVerification)
+		want      string
+		wantErr   bool
+	}{
+		{
+			name: "No_CA_Bundle_to_retrieve_for_nil_cluster",
+			ev: &EgressVerification{
+				cluster: nil,
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.setupFunc != nil {
+				tt.setupFunc(tt.ev)
+			}
+			got, _ := tt.ev.getCABundle(context.Background())
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFiltersToString(t *testing.T) {
+	tests := []struct {
+		name    string
+		filters []types.Filter
+		want    string
+	}{
+		{
+			name: "single_filter",
+			filters: []types.Filter{
+				{
+					Name:   aws.String("tag:Name"),
+					Values: []string{"test"},
+				},
+			},
+			want: "[name: tag:Name, values: test]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := filtersToString(tt.filters)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func Test_egressVerificationGetPlatform(t *testing.T) {
+	tests := []struct {
+		name      string
+		e         *EgressVerification
+		expected  cloud.Platform
+		expectErr bool
+	}{
+		{
+			name: "aws",
+			e: &EgressVerification{
+				cluster: newTestCluster(t, cmv1.NewCluster().CloudProvider(cmv1.NewCloudProvider().ID("aws"))),
+				log:     newTestLogger(t),
+			},
+			expected:  cloud.AWSClassic,
+			expectErr: false,
+		},
+		{
+			name: "hostedcluster",
+			e: &EgressVerification{
+				cluster: newTestCluster(t, cmv1.NewCluster().CloudProvider(cmv1.NewCloudProvider().ID("aws")).Hypershift(cmv1.NewHypershift().Enabled(true))),
+				log:     newTestLogger(t),
+			},
+			expected:  cloud.AWSHCP,
+			expectErr: false,
+		},
+		{
+			name: "override",
+			e: &EgressVerification{
+				cluster:      newTestCluster(t, cmv1.NewCluster().CloudProvider(cmv1.NewCloudProvider().ID("aws")).Hypershift(cmv1.NewHypershift().Enabled(true))),
+				platformName: "aws",
+				log:          newTestLogger(t),
+			},
+			expected:  cloud.AWSClassic,
+			expectErr: false,
+		},
+		{
+			name: "gcp",
+			e: &EgressVerification{
+				cluster: newTestCluster(t, cmv1.NewCluster().CloudProvider(cmv1.NewCloudProvider().ID("gcp"))),
+				log:     newTestLogger(t),
+			},
+			expected:  cloud.GCPClassic,
+			expectErr: false,
+		},
+		{
+			name: "invalid",
+			e: &EgressVerification{
+				cluster: newTestCluster(t, cmv1.NewCluster().CloudProvider(cmv1.NewCloudProvider().ID("foo"))),
+				log:     newTestLogger(t),
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			actual, err := test.e.getPlatform()
+			if !test.expectErr {
+				assert.Equal(t, test.expected, actual)
+			}
+			if test.expectErr {
+				assert.Error(t, err)
+			}
+
+		})
+	}
+}
+
+func TestDefaultValidateEgressInput(t *testing.T) {
+	tests := []struct {
+		region    string
+		expectErr bool
+	}{
+		{
+			region:    "us-east-2",
+			expectErr: false,
+		},
+		{
+			region:    "eu-central-1",
+			expectErr: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.region, func(t *testing.T) {
+			cluster := newTestCluster(t, cmv1.NewCluster().AWS(cmv1.NewAWS()))
+			e := &EgressVerification{
+				cluster: cluster,
+				log:     newTestLogger(t),
+			}
+			_, err := e.defaultValidateEgressInput(context.Background(), cloud.AWSClassic)
+			if err != nil {
+				if !test.expectErr {
+					t.Errorf("expected no err, got %s", err)
+				}
+			} else {
+				if test.expectErr {
+					t.Errorf("expected err, got none")
+				}
+			}
+		})
+	}
+}
+
+// compareValidateEgressInput is a helper to compare selected fields of ValidateEgressInput that we care about during testing
+func compareValidateEgressInput(expected, actual *onv.ValidateEgressInput) bool {
+	if expected == nil && actual == nil {
+		return true
+	}
+
+	if (expected == nil && actual != nil) || (expected != nil && actual == nil) {
+		return false
+	}
+
+	if expected.SubnetID != actual.SubnetID ||
+		!reflect.DeepEqual(expected.AWS.SecurityGroupIDs, actual.AWS.SecurityGroupIDs) {
+		return false
+	}
+
+	if expected.AWS.KmsKeyID != actual.AWS.KmsKeyID {
+		return false
+	}
+
+	if expected.Proxy.HttpProxy != actual.Proxy.HttpProxy ||
+		expected.Proxy.HttpsProxy != actual.Proxy.HttpsProxy {
+		return false
+	}
+
+	if expected.Timeout != actual.Timeout {
+		return false
+	}
+
+	return true
+}
+
+func Test_egressVerificationGetSubnetIdAllSubnetsFlag(t *testing.T) {
+	tests := []struct {
+		name      string
+		e         *EgressVerification
+		expected  []string
+		expectErr bool
+	}{
+		{
+			name: "all_subnets_flag_is_on",
+			e: &EgressVerification{
+				log:        newTestLogger(t),
+				SubnetIds:  []string{"string-1", "string-2", "string-3"},
+				AllSubnets: true,
+			},
+			expected:  []string{"string-1", "string-2", "string-3"},
+			expectErr: false,
+		},
+		{
+			name: "non-PrivateLink + BYOVPC unsupported, with --all-subnets flag",
+			e: &EgressVerification{
+				cluster:    newTestCluster(t, cmv1.NewCluster().AWS(cmv1.NewAWS().PrivateLink(false).SubnetIDs("subnet-1", "subnet-2", "subnet-3"))),
+				log:        newTestLogger(t),
+				AllSubnets: true,
+			},
+			expectErr: true,
+		},
+		{
+			name: "PrivateLink + BYOVPC with --all-subnets flag",
+			e: &EgressVerification{
+				cluster:    newTestCluster(t, cmv1.NewCluster().AWS(cmv1.NewAWS().PrivateLink(true).SubnetIDs("subnet-abcd", "subnet-1", "subnet-2", "subnet-3"))),
+				log:        newTestLogger(t),
+				AllSubnets: true,
+			},
+			expected:  []string{"subnet-abcd", "subnet-1", "subnet-2", "subnet-3"},
+			expectErr: false,
+		},
+		{
+			name: "non-BYOVPC clusters get subnets from AWS",
+			e: &EgressVerification{
+				awsClient: mockEgressVerificationAWSClient{
+					describeSubnetsResp: &ec2.DescribeSubnetsOutput{
+						Subnets: []types.Subnet{
+							{
+								SubnetId: aws.String("subnet-abcd"),
+							},
+						},
+					},
+				},
+				cluster:    newTestCluster(t, cmv1.NewCluster()),
+				log:        newTestLogger(t),
+				AllSubnets: true,
+			},
+			expected:  []string{"subnet-abcd"},
+			expectErr: false,
+		},
+		{
+			name: "non-BYOVPC clusters get subnets from AWS, all-subnets flag enabled",
+			e: &EgressVerification{
+				awsClient: mockEgressVerificationAWSClient{
+					describeSubnetsResp: &ec2.DescribeSubnetsOutput{
+						Subnets: []types.Subnet{
+							{
+								SubnetId: aws.String("subnet-abcd"),
+							},
+							{
+								SubnetId: aws.String("subnet-1234"),
+							},
+							{
+								SubnetId: aws.String("subnet-1267"),
+							},
+						},
+					},
+				},
+				cluster:    newTestCluster(t, cmv1.NewCluster()),
+				log:        newTestLogger(t),
+				AllSubnets: true,
+			},
+			expected:  []string{"subnet-abcd", "subnet-1234", "subnet-1267"},
+			expectErr: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			actual, err := test.e.getAwsSubnetIds(context.TODO())
+			if err != nil {
+				if !test.expectErr {
+					t.Errorf("expected no err, got %s", err)
+				}
+			} else {
+				for i := range actual {
+
+					if test.expectErr {
+						t.Errorf("expected err, got none")
+					}
+					if actual[i] != test.expected[i] {
+						t.Errorf("expected subnet-id %s, got %s", test.expected, actual[i])
+					}
+				}
+			}
+		})
+	}
+}
+
+func Test_generateServiceLog(t *testing.T) {
+	tests := []struct {
+		name       string
+		egressUrls []string
+		want       servicelog.PostRequest
+	}{
+		{
+			name:       "no_egress_failures",
+			egressUrls: nil,
+		},
+		{
+			name:       "one_egress_failure",
+			egressUrls: []string{"storage.googleapis.com:443"},
+			want: servicelog.PostRequest{
+				Template:       blockedEgressTemplateUrl,
+				TemplateParams: []string{"URLS=storage.googleapis.com:443"},
+				SkipLinkCheck:  true,
+			},
+		},
+		{
+			name: "multiple_egress_failures",
+			egressUrls: []string{
+				"storage.googleapis.com:443",
+				"console.redhat.com:443",
+				"s3.amazonaws.com:443",
+			},
+			want: servicelog.PostRequest{
+				Template:       blockedEgressTemplateUrl,
+				TemplateParams: []string{"URLS=storage.googleapis.com:443,console.redhat.com:443,s3.amazonaws.com:443"},
+				SkipLinkCheck:  true,
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			out := new(output.Output)
+			out.SetEgressFailures(test.egressUrls)
+			if got := generateServiceLog(out); !reflect.DeepEqual(got, test.want) {
+				t.Errorf("generateServiceLog() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+const (
+	rawCaBundleConfigMapTemplate string = `{
+	"apiVersion": "v1",
+	"kind": "ConfigMap",
+	"metadata": {
+		"name": "user-ca-bundle",
+		"namespace": "openshift-config"
+	},
+	"data": {
+		"%s": "%s"
+	}
+}`
+)
+
+func TestGetCaBundleFromSyncSet(t *testing.T) {
+	tests := []struct {
+		name      string
+		ss        *hivev1.SyncSet
+		expected  string
+		expectErr bool
+	}{
+		{
+			name: "valid",
+			ss: &hivev1.SyncSet{
+				Spec: hivev1.SyncSetSpec{
+					SyncSetCommonSpec: hivev1.SyncSetCommonSpec{
+						Resources: []runtime.RawExtension{
+							{Raw: []byte(fmt.Sprintf(rawCaBundleConfigMapTemplate, caBundleConfigMapKey, "myCABundle"))},
+						},
+					},
+				},
+			},
+			expected:  "myCABundle",
+			expectErr: false,
+		},
+		{
+			name: "invalid",
+			ss: &hivev1.SyncSet{
+				Spec: hivev1.SyncSetSpec{
+					SyncSetCommonSpec: hivev1.SyncSetCommonSpec{
+						Resources: []runtime.RawExtension{
+							{Raw: []byte(fmt.Sprintf(rawCaBundleConfigMapTemplate, "somethingElse", "myCABundle"))},
+						},
+					},
+				},
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			actual, err := getCaBundleFromSyncSet(test.ss)
+			if err != nil {
+				if !test.expectErr {
+					t.Errorf("expected no err, got %v", err)
+				}
+			} else {
+				if test.expectErr {
+					t.Error("expected error, got nil")
+				}
+
+				if test.expected != actual {
+					t.Errorf("expected: %s, got: %s", test.expected, actual)
+				}
+			}
+		})
+	}
+}
+
+func TestSelectMostRecentCaBundleConfigMap(t *testing.T) {
+	// Helper function to create a ConfigMap with a specific name, timestamp, and CA bundle data
+	createConfigMap := func(name string, timestamp time.Time, hasCaBundle bool) corev1.ConfigMap {
+		cm := corev1.ConfigMap{}
+		cm.Name = name
+		cm.CreationTimestamp = metav1.Time{Time: timestamp}
+		if hasCaBundle {
+			cm.Data = map[string]string{
+				caBundleConfigMapKey: fmt.Sprintf("ca-bundle-data-from-%s", name),
+			}
+		} else {
+			cm.Data = map[string]string{
+				"other-key": "other-data",
+			}
+		}
+		return cm
+	}
+
+	now := time.Now()
+	olderTime := now.Add(-2 * time.Hour)
+	oldestTime := now.Add(-4 * time.Hour)
+
+	tests := []struct {
+		name           string
+		configMaps     []corev1.ConfigMap
+		expectedBundle string
+		expectErr      bool
+	}{
+		{
+			name: "single_configmap_exact_name",
+			configMaps: []corev1.ConfigMap{
+				createConfigMap("user-ca-bundle", now, true),
+			},
+			expectedBundle: "ca-bundle-data-from-user-ca-bundle",
+			expectErr:      false,
+		},
+		{
+			name: "single_configmap_with_suffix",
+			configMaps: []corev1.ConfigMap{
+				createConfigMap("user-ca-bundle-abc123", now, true),
+			},
+			expectedBundle: "ca-bundle-data-from-user-ca-bundle-abc123",
+			expectErr:      false,
+		},
+		{
+			name: "multiple_configmaps_select_most_recent",
+			configMaps: []corev1.ConfigMap{
+				createConfigMap("user-ca-bundle-old", oldestTime, true),
+				createConfigMap("user-ca-bundle-newer", olderTime, true),
+				createConfigMap("user-ca-bundle-newest", now, true),
+			},
+			expectedBundle: "ca-bundle-data-from-user-ca-bundle-newest",
+			expectErr:      false,
+		},
+		{
+			name: "multiple_configmaps_unordered_select_most_recent",
+			configMaps: []corev1.ConfigMap{
+				createConfigMap("user-ca-bundle-newest", now, true),
+				createConfigMap("user-ca-bundle-old", oldestTime, true),
+				createConfigMap("user-ca-bundle-newer", olderTime, true),
+			},
+			expectedBundle: "ca-bundle-data-from-user-ca-bundle-newest",
+			expectErr:      false,
+		},
+		{
+			name: "no_matching_configmap",
+			configMaps: []corev1.ConfigMap{
+				createConfigMap("other-configmap", now, true),
+				createConfigMap("another-bundle", now, true),
+			},
+			expectErr: true,
+		},
+		{
+			name: "configmap_exists_but_missing_ca_bundle_key",
+			configMaps: []corev1.ConfigMap{
+				createConfigMap("user-ca-bundle", now, false),
+			},
+			expectErr: true,
+		},
+		{
+			name: "mixed_configmaps_some_with_prefix_some_without",
+			configMaps: []corev1.ConfigMap{
+				createConfigMap("other-bundle", oldestTime, true),
+				createConfigMap("user-ca-bundle-correct", now, true),
+				createConfigMap("another-config", olderTime, true),
+			},
+			expectedBundle: "ca-bundle-data-from-user-ca-bundle-correct",
+			expectErr:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actual, err := selectMostRecentCaBundleConfigMap(tt.configMaps)
+			if err != nil {
+				if !tt.expectErr {
+					t.Errorf("expected no err, got %v", err)
+				}
+			} else {
+				if tt.expectErr {
+					t.Error("expected error, got nil")
+				}
+
+				if tt.expectedBundle != actual {
+					t.Errorf("expected: %s, got: %s", tt.expectedBundle, actual)
+				}
+			}
+		})
+	}
+}
+
+func TestEgressVerification_GetRestConfig(t *testing.T) {
+	ctx := context.Background()
+
+	tests := []struct {
+		name           string
+		ev             *EgressVerification
+		expectedLog    string
+		expectError    bool
+		expectedResult string // Description of expected result type
+	}{
+		{
+			name: "priority_1_explicit_kubeconfig",
+			ev: &EgressVerification{
+				KubeConfig: "/path/to/test.kubeconfig",
+				ClusterId:  "should-be-ignored",
+				log:        newTestLogger(t),
+			},
+			expectedLog:    "Pod mode using provided kubeconfig: /path/to/test.kubeconfig",
+			expectError:    false,
+			expectedResult: "explicit kubeconfig should be used",
+		},
+		{
+			name: "priority_2_backplane_credentials_with_elevation",
+			ev: &EgressVerification{
+				ClusterId:  "test-cluster-id",
+				Reason:     "PD-12345",
+				KubeConfig: "", // No explicit kubeconfig
+				log:        newTestLogger(t),
+			},
+			expectedLog:    "Pod mode using elevated backplane credentials (backplane-cluster-admin) for cluster: test-cluster-id",
+			expectError:    false,
+			expectedResult: "backplane credentials with elevation should be used",
+		},
+		{
+			name: "priority_2_backplane_credentials_without_elevation",
+			ev: &EgressVerification{
+				ClusterId:  "test-cluster-id",
+				KubeConfig: "", // No explicit kubeconfig
+				log:        newTestLogger(t),
+			},
+			expectedLog:    "Pod mode using backplane credentials for cluster: test-cluster-id",
+			expectError:    false,
+			expectedResult: "backplane credentials without elevation should be used",
+		},
+		{
+			name: "priority_4_default_kubeconfig_fallback",
+			ev: &EgressVerification{
+				ClusterId:  "", // No cluster ID
+				KubeConfig: "", // No explicit kubeconfig
+				log:        newTestLogger(t),
+			},
+			expectedLog:    "Pod mode using default kubeconfig",
+			expectError:    false,
+			expectedResult: "default kubeconfig should be used (may succeed if valid kubeconfig exists)",
+		},
+		{
+			name: "invalid_explicit_kubeconfig_should_error",
+			ev: &EgressVerification{
+				KubeConfig: "/nonexistent/invalid.kubeconfig",
+				log:        newTestLogger(t),
+			},
+			expectError:    true,
+			expectedResult: "should return error for invalid kubeconfig",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Note: These tests focus on the priority logic and error handling.
+			// Actual REST config creation will fail in test environment, but we can
+			// verify the correct code paths are taken and appropriate errors are returned.
+
+			_, err := tt.ev.getRestConfig(ctx)
+
+			if tt.expectError {
+				assert.Error(t, err, tt.expectedResult)
+			} else {
+				// In test environment, the result depends on whether valid kubeconfig files exist
+				// The important thing is that no panic occurs and the function handles
+				// the priority order correctly. We verify the function completes successfully.
+
+				// For default kubeconfig case, it might succeed if ~/.kube/config exists and is valid
+				// For other cases, we typically expect errors due to missing files/services
+				if tt.name == "priority_4_default_kubeconfig_fallback" {
+					// Default kubeconfig might actually work in test environment
+					// Just verify no panic occurred
+					t.Logf("Default kubeconfig test completed. Error: %v", err)
+				} else {
+					// For explicit kubeconfig and backplane cases, we expect errors
+					assert.NotNil(t, err, "Expected error in test environment due to missing real kubeconfig/backplane")
+				}
+			}
+		})
+	}
+}
+func Test_egressVerification_setupForAwsVerification(t *testing.T) {
+	tests := []struct {
+		name string
+		e    *EgressVerification
+	}{
+		{
+			name: "no_clusterId",
+			e:    &EgressVerification{},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			err := test.e.fetchCluster(ctx)
+			assert.NoError(t, err)
+		})
+	}
+}

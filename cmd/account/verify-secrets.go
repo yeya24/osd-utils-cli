@@ -5,28 +5,26 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/aws/aws-sdk-go/service/sts"
-	awsv1alpha1 "github.com/openshift/aws-account-operator/pkg/apis/aws/v1alpha1"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	awsv1alpha1 "github.com/openshift/aws-account-operator/api/v1alpha1"
+	"github.com/openshift/osdctl/cmd/common"
+	"github.com/openshift/osdctl/pkg/k8s"
+	awsprovider "github.com/openshift/osdctl/pkg/provider/aws"
 	"github.com/spf13/cobra"
-
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/openshift/osdctl/cmd/common"
-	"github.com/openshift/osdctl/pkg/k8s"
-	awsprovider "github.com/openshift/osdctl/pkg/provider/aws"
 )
 
 const (
-	verifySecretsUsage = "The verify-secrets command should have only 0 or 1 arguments"
+	verifySecretsUsage = "The verify-secrets command should have only 0 or 1 arguments" //#nosec G101 -- not a secret
 )
 
 // newCmdVerifySecrets implements the verify-secrets command
 // which verifies AWS credentials managed by AWS Account Operator
-func newCmdVerifySecrets(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *cobra.Command {
-	ops := newVerifySecretsOptions(streams, flags)
+func newCmdVerifySecrets(streams genericclioptions.IOStreams, client client.Client) *cobra.Command {
+	ops := newVerifySecretsOptions(streams, client)
 	verifySecretsCmd := &cobra.Command{
 		Use:               "verify-secrets [<account name>]",
 		Short:             "Verify AWS Account CR IAM User credentials",
@@ -54,15 +52,14 @@ type verifySecretsOptions struct {
 	verbose bool
 	all     bool
 
-	flags *genericclioptions.ConfigFlags
 	genericclioptions.IOStreams
 	kubeCli client.Client
 }
 
-func newVerifySecretsOptions(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *verifySecretsOptions {
+func newVerifySecretsOptions(streams genericclioptions.IOStreams, client client.Client) *verifySecretsOptions {
 	return &verifySecretsOptions{
-		flags:     flags,
 		IOStreams: streams,
+		kubeCli:   client,
 	}
 }
 
@@ -73,12 +70,6 @@ func (o *verifySecretsOptions) complete(cmd *cobra.Command, args []string) error
 
 	if len(args) == 1 {
 		o.accountName = args[0]
-	}
-
-	var err error
-	o.kubeCli, err = k8s.NewClient(o.flags)
-	if err != nil {
-		return err
 	}
 
 	return nil
@@ -117,7 +108,7 @@ func (o *verifySecretsOptions) run() error {
 			}
 			credentials = append(credentials, &awsSecret{
 				secret: account.Spec.IAMUserSecret,
-				awsCreds: &awsprovider.AwsClientInput{
+				awsCreds: &awsprovider.ClientInput{
 					AccessKeyID:     creds.AccessKeyID,
 					SecretAccessKey: creds.SecretAccessKey,
 				},
@@ -143,7 +134,7 @@ func (o *verifySecretsOptions) run() error {
 		}
 		credentials = append(credentials, &awsSecret{
 			secret: account.Spec.IAMUserSecret,
-			awsCreds: &awsprovider.AwsClientInput{
+			awsCreds: &awsprovider.ClientInput{
 				AccessKeyID:     creds.AccessKeyID,
 				SecretAccessKey: creds.SecretAccessKey,
 			},
@@ -157,7 +148,7 @@ func (o *verifySecretsOptions) run() error {
 			}
 			credentials = append(credentials, &awsSecret{
 				secret: "byoc",
-				awsCreds: &awsprovider.AwsClientInput{
+				awsCreds: &awsprovider.ClientInput{
 					AccessKeyID:     creds.AccessKeyID,
 					SecretAccessKey: creds.SecretAccessKey,
 				},
@@ -204,6 +195,6 @@ func (o *verifySecretsOptions) run() error {
 }
 
 type awsSecret struct {
-	awsCreds *awsprovider.AwsClientInput
+	awsCreds *awsprovider.ClientInput
 	secret   string
 }

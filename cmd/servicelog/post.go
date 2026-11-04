@@ -1,258 +1,466 @@
 package servicelog
 
 import (
-	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io/ioutil"
-	"net/url"
 	"os"
+	"os/signal"
+	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
-	"github.com/openshift-online/ocm-cli/pkg/arguments"
+	"k8s.io/utils/strings/slices"
+
 	"github.com/openshift-online/ocm-cli/pkg/dump"
-	sdk "github.com/openshift-online/ocm-sdk-go"
 	v1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
-	"github.com/openshift/osdctl/internal/servicelog"
-	"github.com/openshift/osdctl/internal/utils"
+	slv1 "github.com/openshift-online/ocm-sdk-go/servicelogs/v1"
+	"github.com/openshift/osdctl/internal/io"
+	internalutils "github.com/openshift/osdctl/internal/utils"
+	"github.com/openshift/osdctl/pkg/link_validator"
 	"github.com/openshift/osdctl/pkg/printer"
+	sl "github.com/openshift/osdctl/pkg/servicelog"
+	ocmutils "github.com/openshift/osdctl/pkg/utils"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var (
-	Message         servicelog.Message
-	template        string
+	userParameterNames, userParameterValues []string
+)
+
+type PostCmdOptions struct {
+	Message         sl.Message
+	Template        string
+	TemplateParams  []string
+	Overrides       []string
 	filterFiles     []string // Path to filter file
 	filtersFromFile string   // Contents of filterFiles
+	filterParams    []string
 	isDryRun        bool
 	skipPrompts     bool
-)
+	clustersFile    string
+	InternalOnly    bool
+	ClusterId       string
+	SkipLinkCheck   bool
 
-const (
-	defaultTemplate = ""
-)
-
-// postCmd represents the post command
-var postCmd = &cobra.Command{
-	Use:   "post",
-	Short: "Send a servicelog message to a given cluster",
-	Run: func(cmd *cobra.Command, args []string) {
-
-		parseUserParameters() // parse all the '-p' user flags
-		readFilterFile()      // parse the ocm filters in file provided via '-f' flag
-		readTemplate()        // parse the given JSON template provided via '-t' flag
-
-		// For every '-p' flag, replace its related placeholder in the template & filterFiles
-		for k := range userParameterNames {
-			replaceFlags(userParameterNames[k], userParameterValues[k])
-		}
-
-		// Check if there are any remaining placeholders in the template that are not replaced by a parameter,
-		// excluding '${CLUSTER_UUID}' which will be replaced for each cluster later
-		checkLeftovers([]string{"${CLUSTER_UUID}"})
-
-		// Create an OCM client to talk to the cluster API
-		// the user has to be logged in (e.g. 'ocm login')
-		ocmClient := createConnection()
-		defer func() {
-			if err := ocmClient.Close(); err != nil {
-				log.Errorf("Cannot close the ocmClient (possible memory leak): %q", err)
-			}
-		}()
-
-		// Retrieve matching clusters
-		if filtersFromFile != "" {
-			if len(filterParams) != 0 {
-				log.Warnf("Search queries were passed using both the '-q' and '-f' flags. This will apply logical AND between the queries, potentially resulting in no matches")
-			}
-			filters := strings.Join(strings.Split(strings.TrimSpace(filtersFromFile), "\n"), " ")
-			filterParams = append(filterParams, filters)
-		}
-
-		clusters, err := applyFilters(ocmClient, filterParams)
-
-		if err != nil {
-			log.Fatalf("Cannot retrieve clusters: %q", err)
-		} else if len(clusters) < 1 {
-			log.Fatalf("No clusters match the given parameters.")
-		}
-
-		log.Infoln("The following clusters match the given parameters:")
-		if err := printClusters(clusters); err != nil {
-			log.Fatalf("Could not print matching clusters: %q", err)
-		}
-
-		log.Infoln("The following template will be sent:")
-		if err := printTemplate(); err != nil {
-			log.Errorf("Cannot read generated template: %q", err)
-		}
-
-		// If this is a dry-run, don't proceed further.
-		if isDryRun {
-			return
-		}
-
-		if !skipPrompts {
-			if err = confirmSend(); err != nil {
-				log.Errorf("Error confirming message: %q", err)
-			}
-		}
-
-		for _, cluster := range clusters {
-			request, clusterMessage := createPostRequest(ocmClient, cluster.ExternalID())
-			response := sendRequest(request)
-			check(response, clusterMessage)
-		}
-	},
+	// Messaged clusters
+	successfulClusters map[string]string
+	failedClusters     map[string]string
 }
 
-func init() {
-	// define required flags
-	postCmd.Flags().StringVarP(&template, "template", "t", defaultTemplate, "Message template file or URL")
-	postCmd.Flags().StringArrayVarP(&templateParams, "param", "p", templateParams, "Specify a key-value pair (eg. -p FOO=BAR) to set/override a parameter value in the template.")
-	postCmd.Flags().BoolVarP(&isDryRun, "dry-run", "d", false, "Dry-run - print the service log about to be sent but don't send it.")
-	postCmd.Flags().StringArrayVarP(&filterParams, "query", "q", filterParams, "Specify a search query (eg. -q \"name like foo\") for a bulk-post to matching clusters.")
-	postCmd.Flags().BoolVarP(&skipPrompts, "yes", "y", false, "Skips all prompts.")
-	postCmd.Flags().StringArrayVarP(&filterFiles, "query-file", "f", filterFiles, "File containing search queries to apply. All lines in the file will be concatenated into a single query. If this flag is called multiple times, every file's search query will be combined with logical AND.")
+const documentationBaseURL = "https://docs.openshift.com"
+
+func newPostCmd() *cobra.Command {
+	var opts = PostCmdOptions{}
+	postCmd := &cobra.Command{
+		Use:   "post --cluster-id <cluster-identifier>",
+		Short: "Post a service log to a cluster or list of clusters",
+		Long: `Post a service log to a cluster or list of clusters
+
+  Docs: https://docs.openshift.com/rosa/logging/sd-accessing-the-service-logs.html`,
+		Example: `
+  # Post a service log to a single cluster via a local file
+  osdctl servicelog post --cluster-id ${CLUSTER_ID} -t ~/path/to/file.json
+
+  # Post a service log to a single cluster via a remote URL, providing a parameter
+  osdctl servicelog post --cluster-id ${CLUSTER_ID} -t https://raw.githubusercontent.com/openshift/managed-notifications/master/osd/incident_resolved.json -p ALERT_NAME="alert"
+
+  # Post an internal-only service log message
+  osdctl servicelog post --cluster-id ${CLUSTER_ID} -i -p "MESSAGE=This is an internal message"
+
+  # Post a short external message
+  osdctl servicelog post --cluster-id ${CLUSTER_ID} -r "summary=External Message" -r "description=This is an external message" -r internal_only=False
+
+  # Post a service log to a group of clusters, determined by an OCM query
+  ocm list cluster -p search="cloud_provider.id is 'gcp' and managed='true' and state is 'ready'"
+  osdctl servicelog post -q "cloud_provider.id is 'gcp' and managed='true' and state is 'ready'" -t file.json
+`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return opts.Run()
+		},
+	}
+
+	// define flags
+	postCmd.Flags().StringVarP(&opts.ClusterId, "cluster-id", "C", "", "Internal ID of the cluster to post the service log to")
+	postCmd.Flags().StringVarP(&opts.Template, "template", "t", "", "Message template file or URL")
+	postCmd.Flags().StringArrayVarP(&opts.TemplateParams, "param", "p", opts.TemplateParams, "Specify a key-value pair (eg. -p FOO=BAR) to set/override a parameter value in the template.")
+	postCmd.Flags().StringArrayVarP(&opts.Overrides, "override", "r", opts.Overrides, "Specify a key-value pair (eg. -r FOO=BAR) to replace a JSON key in the document, only supports string fields, specifying -r without -t or -i will use a default template with severity `Info` and internal_only=True unless these are also overridden.")
+	postCmd.Flags().BoolVarP(&opts.isDryRun, "dry-run", "d", false, "Dry-run - print the service log about to be sent but don't send it.")
+	postCmd.Flags().StringArrayVarP(&opts.filterParams, "query", "q", []string{}, "Specify a search query (eg. -q \"name like foo\") for a bulk-post to matching clusters.")
+	postCmd.Flags().BoolVarP(&opts.skipPrompts, "yes", "y", false, "Skips all prompts.")
+	postCmd.Flags().StringArrayVarP(&opts.filterFiles, "query-file", "f", []string{}, "File containing search queries to apply. All lines in the file will be concatenated into a single query. If this flag is called multiple times, every file's search query will be combined with logical AND.")
+	postCmd.Flags().StringVarP(&opts.clustersFile, "clusters-file", "c", "", `Read a list of clusters to post the servicelog to. the format of the file is: {"clusters":["$CLUSTERID"]}`)
+	postCmd.Flags().BoolVarP(&opts.InternalOnly, "internal", "i", false, "Internal only service log. Use MESSAGE for template parameter (eg. -p MESSAGE='My super secret message').")
+	postCmd.Flags().BoolVar(&opts.SkipLinkCheck, "skip-link-check", false, "Skip validating if links in Service Log are valid")
+
+	return postCmd
 }
 
-// parseUserParameters parse all the '-p FOO=BAR' parameters and checks for syntax errors
-func parseUserParameters() {
-	var queries []string // interpret all '-p CLUSTER_UUID' parameters as queries to be made to the ocmClient
-	for _, v := range templateParams {
-		if !strings.Contains(v, "=") {
-			log.Fatalf("Wrong syntax of '-p' flag. Please use it like this: '-p FOO=BAR'")
-		}
-
-		param := strings.Split(v, "=")
-		if param[0] == "" || param[1] == "" {
-			log.Fatalf("Wrong syntax of '-p' flag. Please use it like this: '-p FOO=BAR'")
-		}
-
-		if param[0] != "CLUSTER_UUID" {
-			userParameterNames = append(userParameterNames, fmt.Sprintf("${%v}", param[0]))
-			userParameterValues = append(userParameterValues, param[1])
-		} else {
-			queries = append(queries, generateQuery(param[1]))
-		}
-	}
-
-	if len(queries) != 0 {
-		if len(filterParams) != 0 {
-			log.Warnf("At least one $CLUSTER_UUID parameter was passed with the '-q' flag. This will apply logical AND between the search query and the cluster(s) given, potentially resulting in no matches")
-		}
-		filterParams = append(filterParams, strings.Join(queries, " or "))
-	}
+func (o *PostCmdOptions) Init() error {
+	userParameterNames = []string{}
+	userParameterValues = []string{}
+	o.successfulClusters = make(map[string]string)
+	o.failedClusters = make(map[string]string)
+	return nil
 }
 
-func confirmSend() error {
-	fmt.Print("Continue? (y/N): ")
-	reader := bufio.NewReader(os.Stdin)
-	responseBytes, _, err := reader.ReadLine()
-	if err != nil {
-		return err
-	}
-	response := strings.ToUpper(string(responseBytes))
-
-	if response != "Y" && response != "YES" {
-		if response != "N" && response != "NO" && response != "" {
-			log.Fatal("Invalid response, expected 'YES' or 'Y' (case-insensitive). ")
-		}
-		log.Fatalf("Exiting...")
+func (o *PostCmdOptions) Validate() error {
+	if o.ClusterId == "" && len(o.filterParams) == 0 && o.clustersFile == "" && len(o.filterFiles) == 0 {
+		return fmt.Errorf("no cluster identifier has been found, please specify --cluster-id, -q, -c or -f")
 	}
 	return nil
 }
 
-// accessTemplate returns the contents of a local file or url, and any errors encountered
-func accessFile(filePath string) ([]byte, error) {
-	if utils.FileExists(filePath) {
-		file, err := ioutil.ReadFile(filePath) // template is file on the disk
+// Run has its own parameter substitution pipeline rather than using
+// servicelog.Post because -r overrides must be applied between template
+// loading and leftover checking, and -p params also substitute into OCM
+// filter files (-f), not just the message.
+func (o *PostCmdOptions) Run() error {
+	if err := o.Init(); err != nil {
+		return err
+	}
+	if err := o.Validate(); err != nil {
+		return err
+	}
+
+	o.parseUserParameters()                // parse all the '-p' user flags
+	overrideMap, err := o.parseOverrides() // parse all the '-o' flags
+	if err != nil {
+		log.Fatalf("Error parsing overrides: %s", err)
+	}
+
+	o.readFilterFile() // parse the ocm filters in file provided via '-f' flag
+	o.loadMessage()    // parse the given JSON template provided via '-t' flag
+
+	// For every '-p' flag, replace its related placeholder in the template & filterFiles
+	for k := range userParameterNames {
+		o.replaceFlags(userParameterNames[k], userParameterValues[k])
+	}
+
+	// Replace any overrides
+	for overrideKey, overrideValue := range overrideMap {
+		err := o.overrideField(overrideKey, overrideValue)
 		if err != nil {
-			return file, fmt.Errorf("Cannot read the file.\nError: %q\n", err)
-		}
-		return file, nil
-	}
-	if utils.FolderExists(filePath) {
-		return nil, fmt.Errorf("the provided path %q is a directory, not a file!", filePath)
-	}
-	if utils.IsValidUrl(filePath) {
-		urlPage, _ := url.Parse(filePath)
-		if err := utils.IsOnline(*urlPage); err != nil {
-			return nil, fmt.Errorf("host %q is not accessible", filePath)
-		} else {
-			return utils.CurlThis(urlPage.String())
+			log.Fatalf("could not override '%s': %s", overrideKey, err)
 		}
 	}
-	return nil, fmt.Errorf("cannot read the file %q", filePath)
+
+	// Check if there are any remaining placeholders in the template that are not replaced by a parameter,
+	// excluding '${CLUSTER_UUID}' which will be replaced for each cluster later
+	o.checkLeftovers([]string{"${CLUSTER_UUID}"})
+
+	// Create an OCM client to talk to the cluster API
+	// the user has to be logged in (e.g. 'ocm login')
+	ocmClient, err := ocmutils.CreateConnection()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := ocmClient.Close(); err != nil {
+			log.Errorf("Cannot close the ocmClient (possible memory leak): %q", err)
+		}
+	}()
+
+	// Merge OCM filters from all custom filter-related flags
+	if o.filtersFromFile != "" {
+		if len(o.filterParams) != 0 {
+			log.Warnf("Search queries were passed using both the '-q' and '-f' flags. This will apply logical AND between the queries, potentially resulting in no matches")
+		}
+		filters := strings.Join(strings.Split(strings.TrimSpace(o.filtersFromFile), "\n"), " ")
+		o.filterParams = append(o.filterParams, filters)
+	}
+
+	// Combine existing OCM filters with any cluster id-related flags
+	var queries []string
+	if o.clustersFile != "" {
+		clusterIDs, err := io.ParseAndValidateClustersFile(o.clustersFile)
+		if err != nil {
+			return fmt.Errorf("cannot parse clusters file %s: %w", o.clustersFile, err)
+		}
+		for _, clusterID := range clusterIDs {
+			queries = append(queries, ocmutils.GenerateQuery(clusterID))
+		}
+	}
+	if o.ClusterId != "" {
+		queries = append(queries, ocmutils.GenerateQuery(o.ClusterId))
+	}
+	if len(queries) > 0 {
+		if len(o.filterParams) > 0 {
+			log.Warnf("A cluster identifier was passed with the '-q' flag. This will apply logical AND between the search query and the cluster given, potentially resulting in no matches")
+		}
+		o.filterParams = append(o.filterParams, strings.Join(queries, " or "))
+	}
+
+	if len(o.filterParams) > 0 {
+		log.Debugf("applied filters: %v", o.filterParams)
+	}
+
+	clusters, err := ocmutils.ApplyFilters(ocmClient, o.filterParams)
+	if err != nil {
+		return fmt.Errorf("failed to search for clusters with provided filters (%v): %v", o.filterParams, err)
+	} else if len(clusters) < 1 {
+		return fmt.Errorf("no clusters match the given filters (%v)", o.filterParams)
+	}
+
+	log.Infoln("The following clusters match the given parameters:")
+	if err := o.printClusters(clusters); err != nil {
+		return fmt.Errorf("could not print matching clusters: %v", err)
+	}
+
+	// If sending a service log to one cluster, print recent service logs so that we can verify we aren't sending
+	// duplicate messages in quick succession
+	if len(clusters) == 1 {
+		if term.IsTerminal(int(os.Stdout.Fd())) && sl.CheckServiceLogsLastHour(ocmClient, clusters[0].ID()) {
+			if !ocmutils.ConfirmPrompt() {
+				return nil
+			}
+		}
+	}
+
+	log.Infoln("The following template will be sent:")
+	if err := o.printTemplate(); err != nil {
+		return fmt.Errorf("cannot read generated template: %w", err)
+	}
+
+	if !o.SkipLinkCheck {
+		lv := link_validator.NewLinkValidator()
+		messageText := o.Message.Summary + " " + o.Message.Description
+		warnings, err := lv.ValidateLinks(messageText)
+		if err != nil {
+			log.Error("aborting due to dead link use '--skip-link-check' to override\n", err)
+			return nil
+		}
+		for _, warning := range warnings {
+			log.Warnf("link warning: %s (%v)", warning.URL, warning.Warning)
+		}
+	}
+
+	// If this is a dry-run, don't proceed further.
+	if o.isDryRun {
+		return nil
+	}
+
+	if !o.skipPrompts {
+		if !ocmutils.ConfirmPrompt() {
+			return nil
+		}
+	}
+
+	// Handler if the program terminates abruptly
+	go func() {
+		sigchan := make(chan os.Signal, 1)
+		signal.Notify(sigchan, os.Interrupt)
+		<-sigchan
+
+		// perform final cleanup actions
+		log.Error("program abruptly terminated, performing clean-up...")
+		o.cleanUp(clusters)
+		log.Fatal("servicelog post command terminated")
+	}()
+
+	// cluster type for which documentation link is provided in servicelog description
+	docClusterType := getDocClusterType(o.Message.Description)
+
+	for _, cluster := range clusters {
+		// if servicelog description contains a documentation link, verify that
+		// documentation link matches the cluster product (rosa, dedicated)
+		if !o.skipPrompts && docClusterType != "" {
+			clusterType := cluster.Product().ID()
+
+			if docClusterType != clusterType {
+				log.Warn("The documentation mentioned in the servicelog is for '", docClusterType, "' while the product is '", clusterType, "'.")
+				if !ocmutils.ConfirmPrompt() {
+					log.Info("Skipping cluster ID: ", cluster.ID(), ", Name: ", cluster.Name())
+					continue
+				}
+			}
+		}
+
+		if err := sl.PostMessage(ocmClient, cluster, o.Message); err != nil {
+			o.failedClusters[cluster.ExternalID()] = err.Error()
+			continue
+		}
+		o.successfulClusters[cluster.ExternalID()] = fmt.Sprintf("Message has been successfully sent to %s", cluster.ExternalID())
+	}
+
+	o.printPostOutput()
+	return nil
 }
 
-// parseTemplate reads the template file into a JSON struct
-func parseTemplate(jsonFile []byte) error {
-	return json.Unmarshal(jsonFile, &Message)
+// if servicelog description contains documentation link, parse and return the cluster type from the url
+func getDocClusterType(message string) string {
+
+	if strings.Contains(message, documentationBaseURL) {
+		pattern := `https://docs.openshift.com/([^/]+)/`
+		re := regexp.MustCompile(pattern)
+		match := re.FindStringSubmatch(message)
+		if len(match) >= 2 {
+			productType := match[1]
+			if productType == "dedicated" {
+				// the documentation urls for osd use "dedicated" as the differentiator
+				// e.g. https://docs.openshift.com/dedicated/welcome/index.html
+				// for proper comparison with cluster product types, return "osd"
+				// where "dedicated" is used in the documentation urls
+				productType = "osd"
+			}
+			return productType
+		}
+	}
+	return ""
 }
 
-// readTemplate loads the template into the Message variable
-func readTemplate() {
-	if template == defaultTemplate {
+// parseUserParameters parse all the '-p FOO=BAR' parameters and checks for syntax errors
+func (o *PostCmdOptions) parseUserParameters() {
+	for _, v := range o.TemplateParams {
+		if !strings.Contains(v, "=") {
+			log.Fatalf("Wrong syntax of '-p' flag. Please use it like this: '-p FOO=BAR'")
+		}
+
+		param := strings.SplitN(v, "=", 2)
+		if param[0] == "" || param[1] == "" {
+			log.Fatalf("Wrong syntax of '-p' flag. Please use it like this: '-p FOO=BAR'")
+		}
+
+		userParameterNames = append(userParameterNames, fmt.Sprintf("${%v}", param[0]))
+		userParameterValues = append(userParameterValues, param[1])
+	}
+}
+
+// parseOverides parses all the '-o FOO=BAR' overrides which replace items in the final JSON document
+func (o *PostCmdOptions) parseOverrides() (map[string]string, error) {
+	usageMessageError := errors.New("invalid syntax. Usage: '-r FOO=BAR'")
+	overrideMap := make(map[string]string)
+
+	for _, v := range o.Overrides {
+		if !strings.Contains(v, "=") {
+			return nil, usageMessageError
+		}
+
+		param := strings.SplitN(v, "=", 2)
+		if param[0] == "" || param[1] == "" {
+			return nil, usageMessageError
+		}
+
+		overrideMap[param[0]] = param[1]
+	}
+
+	return overrideMap, nil
+}
+
+func (o *PostCmdOptions) overrideField(overrideKey string, overrideValue string) (err error) {
+	// Get a pointer, then the value of that pointer so that we can edit the fields
+	rt := reflect.ValueOf(&o.Message).Elem()
+
+	for i := 0; i < rt.NumField(); i++ {
+		// Get JSON field name
+		field := rt.Type().Field(i)
+		jsonName := strings.Split(field.Tag.Get("json"), ",")[0]
+
+		if overrideKey == jsonName {
+			// This shouldn't happen, but if it does we should make a nice error
+			if !rt.Field(i).CanSet() {
+				return fmt.Errorf("field cannot be modified")
+			}
+
+			kind := rt.Field(i).Kind()
+
+			// Set the field to the overridden value, since we have a string
+			// we may have to parse it to get the right type
+			switch kind {
+			case reflect.String:
+				rt.Field(i).SetString(overrideValue)
+
+			case reflect.Bool:
+				overrideBool, err := strconv.ParseBool(overrideValue)
+				if err != nil {
+					return fmt.Errorf("couldn't parse bool: %s", err)
+				}
+				rt.Field(i).SetBool(overrideBool)
+
+			default:
+				return fmt.Errorf("overriding of type %s not implemented", kind)
+			}
+
+			return nil
+		}
+	}
+
+	return fmt.Errorf("field does not exist")
+}
+
+// loadMessage loads the template into the Message variable.
+func (o *PostCmdOptions) loadMessage() {
+	if o.InternalOnly {
+		if err := json.Unmarshal([]byte(sl.InternalOnlyTemplate), &o.Message); err != nil {
+			log.Fatalf("Cannot parse the JSON internal message template: %v", err)
+		}
+		o.Message.Severity = string(slv1.SeverityLow)
+		return
+	}
+
+	// If neither `-i` or `-t` is specified, but `-r` is specified at least once then use a pre-canned template
+	if o.Template == "" && len(o.Overrides) != 0 {
+		messageTemplate := []byte(`{"service_name":"SREManualAction","internal_only":true}`)
+		if err := json.Unmarshal(messageTemplate, &o.Message); err != nil {
+			log.Fatalf("Cannot parse the default message template: %v", err)
+		}
+		o.Message.Severity = string(slv1.SeverityLow)
+		return
+	}
+
+	if o.Template == "" {
 		log.Fatalf("Template file is not provided. Use '-t' to fix this.")
 	}
 
-	file, err := accessFile(template)
-	if err != nil { // check if this URL or file and if we can access it
+	data, err := internalutils.AccessFile(o.Template)
+	if err != nil {
 		log.Fatal(err)
 	}
-
-	if err = parseTemplate(file); err != nil {
-		log.Fatalf("Cannot not parse the JSON template.\nError: %q\n", err)
+	if err := json.Unmarshal(data, &o.Message); err != nil {
+		log.Fatalf("Cannot parse JSON template from %q: %v", o.Template, err)
 	}
 }
 
-func readFilterFile() {
-	if len(filterFiles) < 1 {
+func (o *PostCmdOptions) readFilterFile() {
+	if len(o.filterFiles) < 1 {
 		// No filterFiles specified in args
 		return
 	}
 
-	for _, filterFile := range filterFiles {
-		fileContents, err := accessFile(filterFile)
+	for _, filterFile := range o.filterFiles {
+		fileContents, err := internalutils.AccessFile(filterFile)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		if filtersFromFile == "" {
-			filtersFromFile = "(" + strings.TrimSpace(string(fileContents)) + ")"
+		if o.filtersFromFile == "" {
+			o.filtersFromFile = "(" + strings.TrimSpace(string(fileContents)) + ")"
 		} else {
-			filtersFromFile = filtersFromFile + " and (" + strings.TrimSpace(string(fileContents)) + ")"
+			o.filtersFromFile = o.filtersFromFile + " and (" + strings.TrimSpace(string(fileContents)) + ")"
 		}
 	}
 }
 
-// Simple helper to determine if a string is present in a slice
-func contains(a []string, s string) bool {
-	for _, v := range a {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
-
-func FindLeftovers(s string) (matches []string) {
+func (o *PostCmdOptions) FindLeftovers(s string) (matches []string) {
 	r := regexp.MustCompile(`\${[^{}]*}`)
 	matches = r.FindAllString(s, -1)
 	return matches
 }
 
-func checkLeftovers(excludes []string) {
-	unusedParameters, _ := Message.FindLeftovers()
-	unusedParameters = append(unusedParameters, FindLeftovers(filtersFromFile)...)
+func (o *PostCmdOptions) checkLeftovers(excludes []string) {
+	unusedParameters := o.Message.FindLeftovers()
+	unusedParameters = append(unusedParameters, o.FindLeftovers(o.filtersFromFile)...)
 
 	var numberOfMissingParameters int
 	for _, v := range unusedParameters {
 		// Ignore parameters in the exclude list, ie ${CLUSTER_UUID}, which will be replaced later for each cluster a servicelog is sent to
-		if !contains(excludes, v) {
+
+		if !slices.Contains(excludes, v) {
 			numberOfMissingParameters++
 			regex := strings.NewReplacer("${", "", "}", "")
 			log.Errorf("The one of the template files is using '%s' parameter, but '--param' flag is not set for this one. Use '-p %v=\"FOOBAR\"' to fix this.", v, regex.Replace(v))
@@ -265,19 +473,20 @@ func checkLeftovers(excludes []string) {
 	}
 }
 
-func replaceFlags(flagName string, flagValue string) {
+func (o *PostCmdOptions) replaceFlags(flagName string, flagValue string) {
 	if flagValue == "" {
 		log.Fatalf("The selected template is using '%[1]s' parameter, but '%[1]s' flag was not set. Use '-p %[1]s=\"FOOBAR\"' to fix this.", flagName)
 	}
 
 	found := false
-	if Message.SearchFlag(flagName) {
+	if o.Message.SearchFlag(flagName) {
 		found = true
-		Message.ReplaceWithFlag(flagName, flagValue)
+		o.Message.ReplaceWithFlag(flagName, flagValue)
 	}
-	if strings.Contains(filtersFromFile, flagName) {
+
+	if strings.Contains(o.filtersFromFile, flagName) {
 		found = true
-		filtersFromFile = strings.ReplaceAll(filtersFromFile, flagName, flagValue)
+		o.filtersFromFile = strings.ReplaceAll(o.filtersFromFile, flagName, flagValue)
 	}
 
 	if !found {
@@ -285,11 +494,11 @@ func replaceFlags(flagName string, flagValue string) {
 	}
 }
 
-func printClusters(clusters []*v1.Cluster) (err error) {
+func (o *PostCmdOptions) printClusters(clusters []*v1.Cluster) (err error) {
 	table := printer.NewTablePrinter(os.Stdout, 20, 1, 3, ' ')
 	table.AddRow([]string{"Name", "ID", "State", "Version", "Cloud Provider", "Region"})
 	for _, cluster := range clusters {
-		table.AddRow([]string{cluster.DisplayName(), cluster.ID(), string(cluster.State()), cluster.OpenshiftVersion(), cluster.CloudProvider().ID(), cluster.Region().ID()})
+		table.AddRow([]string{cluster.Name(), cluster.ID(), string(cluster.State()), cluster.OpenshiftVersion(), cluster.CloudProvider().ID(), cluster.Region().ID()})
 	}
 
 	// Add empty row for readability
@@ -297,29 +506,58 @@ func printClusters(clusters []*v1.Cluster) (err error) {
 	return table.Flush()
 }
 
-func printTemplate() (err error) {
-	exampleMessage, err := json.Marshal(Message)
+func (o *PostCmdOptions) printTemplate() (err error) {
+	exampleMessage, err := json.Marshal(o.Message)
 	if err != nil {
 		return err
 	}
 	return dump.Pretty(os.Stdout, exampleMessage)
 }
 
-func createPostRequest(ocmClient *sdk.Connection, clusterId string) (request *sdk.Request, clusterMessage servicelog.Message) {
-	// Create and populate the request:
-	request = ocmClient.Post()
-	err := arguments.ApplyPathArg(request, targetAPIPath)
-	if err != nil {
-		log.Fatalf("Can't parse API path '%s': %v\n", targetAPIPath, err)
+// listMessagedClusters prints all the clusters a service log was tried to be posted.
+func (o *PostCmdOptions) listMessagedClusters(clusters map[string]string) error {
+	table := printer.NewTablePrinter(os.Stdout, 20, 1, 3, ' ')
+	table.AddRow([]string{"ID", "Status"})
+
+	for id, status := range clusters {
+		table.AddRow([]string{id, status})
 	}
 
-	clusterMessage = Message
-	clusterMessage.ReplaceWithFlag("${CLUSTER_UUID}", clusterId)
-	messageBytes, err := json.Marshal(clusterMessage)
-	if err != nil {
-		log.Fatalf("Cannot marshal template to json: %s", err)
+	// New row for better readability
+	table.AddRow([]string{})
+
+	return table.Flush()
+}
+
+// printPostOutput prints the main servicelog post output.
+func (o *PostCmdOptions) printPostOutput() {
+	output := fmt.Sprintf("Success: %d, Failed: %d\n", len(o.successfulClusters), len(o.failedClusters))
+	log.Infoln(output + "\n")
+
+	// Print if any service logs were successfully sent
+	if len(o.successfulClusters) > 0 {
+		log.Infoln("Successful clusters:")
+		if err := o.listMessagedClusters(o.successfulClusters); err != nil {
+			log.Fatalf("Cannot list successful clusters: %q", err)
+		}
 	}
 
-	request.Bytes(messageBytes)
-	return request, clusterMessage
+	// Print if there were failures while sending service logs
+	if len(o.failedClusters) > 0 {
+		log.Infoln("Failed clusters:")
+		if err := o.listMessagedClusters(o.failedClusters); err != nil {
+			log.Fatalf("Cannot list failed clusters: %q", err)
+		}
+	}
+}
+
+// cleanUp performs final actions in case of program termination.
+func (o *PostCmdOptions) cleanUp(clusters []*v1.Cluster) {
+	for _, cluster := range clusters {
+		if _, ok := o.successfulClusters[cluster.ExternalID()]; !ok {
+			o.failedClusters[cluster.ExternalID()] = "cannot send message due to program interruption"
+		}
+	}
+
+	o.printPostOutput()
 }

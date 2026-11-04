@@ -10,24 +10,44 @@ Currently, it mainly supports related work for AWS, especially [aws-account-oper
 
 ## Installation
 
+### MacOS
+
+```brew
+brew tap openshift-online/sre-tools
+brew install openshift-online/sre-tools/osdctl
+```
+
 ### Build from source
 
 #### Requirements
 
-- Go >= 1.13
-- make
+- Go >= 1.21
+- make (gmake if on macOS)
 - [goreleaser](https://github.com/goreleaser)
+- `GOPROXY` contains `proxy.golang.org` as highest priority
+  ```shell
+  # Google`s default proxy can be added globally:
+  go env -w GOPROXY="https://proxy.golang.org,$(go env GOPROXY)"
+  ```
 
 ```shell
 # Goreleaser is required for builds,
 # but can be downloaded with the `make download-goreleaser` target
 
 git clone https://github.com/openshift/osdctl.git
+cd osdctl
 make download-goreleaser # only needs to be done once
 make build
 ```
 
 Then you can find the `osdctl` binary file in the `./dist` subdirectory matching your architecture.
+
+### Update documentation after every release
+
+make generate-docs
+
+This will run the script to check for any changes made to the osdctl commands, if found the latest commands and usage will be updated in docs/README.md, to be run as a part of every PR.
+
 
 ### Download from release
 
@@ -35,22 +55,46 @@ Release are available on Github
 
 ### Creating a release
 
-Repository owners can create a new `osdctl` release with the `make release` target. An API token with `repo` permissions is required. [See: https://goreleaser.com/environment/#api-tokens](https://goreleaser.com/environment/#api-tokens)
+Releases are automated. Any maintainer can cut a release by opening a PR that bumps the
+`VERSION` file, no personal token or local `goreleaser` run required.
 
-The goreleaser config (`.goreleaser.yaml`) will look for the token in `~/.config/goreleaser/token`.
+1. Open a PR that updates the `VERSION` file to the new version (e.g. `0.62.0` -> `0.63.0`).
+   You can edit `VERSION` directly, or run `make new-release RELEASE_VERSION=0.63.0` to
+   bump it for you.
+2. Get it reviewed and merged to `master` the usual way (`/lgtm`, `/approve`).
+3. On merge, the `release-on-version-bump` workflow tags `vX.Y.Z`, publishes the
+   GitHub release with `goreleaser`, and kicks the Fedora COPR build.
 
-Goreleaser uses the latest Git tag from the repository to create a release. To make a new release, create a new Git tag:
+No secrets or admin setup are required: the workflow uses the built-in `GITHUB_TOKEN`
+and the `COPR_URL` secret that already powers `trigger_copr_on_tag`. The tag, release,
+and COPR call are done inline in one job because GitHub doesn't re-trigger workflows
+for tags pushed by `GITHUB_TOKEN`.
+
+#### For Fedora
+
+Fedora releases are built in a COPR repository via a [custom
+webhook](https://docs.pagure.org/copr.copr/user_documentation.html#custom-webhook) and the `hack/copr.sh` script as
+build method. The automated flow above calls this webhook as part of the release job.
+Pushing a `vX.Y.Z` tag by hand instead triggers the `trigger_copr_on_tag` workflow,
+which calls the same webhook.
+
+#### Manually (fallback)
+
+Pushing a `vX.Y.Z` tag directly still works and triggers the same `release` and COPR
+workflows. Push it to the remote that points at `openshift/osdctl` (this is `upstream`
+if you cloned a fork, or `origin` if you cloned `openshift/osdctl` directly), using the
+same remote for both commands:
 
 ```shell
-# Creating a new osdctl Github release
-
-# Create a git tag to be the basis of the release
+git fetch <remote> --tags
 git tag -a vX.Y.Z -m "new release message"
-git push origin vX.Y.Z
-
-# Create the release
-make release
+git push <remote> vX.Y.Z
 ```
+
+If you need to build a release entirely from your machine (e.g. the Action is
+unavailable), the `make release` target still works. It requires a GitHub API token
+with `repo` permissions, which the goreleaser config reads from
+`~/.config/goreleaser/token`. [See: https://goreleaser.com/environment/#api-tokens](https://goreleaser.com/environment/#api-tokens)
 
 ## Run tests
 
@@ -58,9 +102,23 @@ make release
 make test
 ```
 
-## Usage
+## Config File
 
-For the detailed usage of each command, please refer to [here](./docs/command).
+A config file is created at ~/.config/osdctl if it does not already exist when running any command.
+The config file is yaml formatted.
+As an example:
+```
+key1: value1
+key2: value2
+```
+
+### Config File Setup Command
+The `setup` command prompts the user to enter relevant necessary (and optional) config file values.
+```bash
+$ osdctl setup
+Enter prod_jumprole_account_id  [default ]: <user input>
+Enter aws_proxy  [default http://squid.corp.redhat.com:3128]: <user input>
+```
 
 ### AWS Account CR reset
 
@@ -191,7 +249,7 @@ osdctl account clean-velero-snapshots -p <profile name> -c <config file path>
 
 ### AWS Account IAM User Credentials validation
 
-`verify-secrets` command verifies the IAM User Secret associated with Account Accout CR.
+`verify-secrets` command verifies the IAM User Secret associated with Account Account CR.
 
 ```bash
 # no argument, verify all account secrets
@@ -231,7 +289,7 @@ test-cr-secret
 osdctl get aws-account -a <Account CR Name>
 
 # Get AWS Account ID by Account Claim CR Name and Namespace
-osdctl get aws-account -c <Claim Name> -n <Claim Namepace>
+osdctl get aws-account -c <Claim Name> -n <Claim Namespace>
 ```
 
 ### Rotate AWS IAM Credentials
@@ -260,10 +318,27 @@ aws_account_operator_total_accounts_crs_claimed{name="aws-account-operator"} => 
 ......
 ```
 
+### Get cluster policy and policy-diff
+
+`policy` command saves the crs files in /tmp/crs- directory for given `x.y.z` release version. `policy-diff` command, in addition, compares the files of directories and outputs the diff.
+
+```bash
+osdctl sts policy <OCP version>
+osdctl sts policy-diff <old version> <new version>
+```
+
 ### Hive ClusterDeployment CR list
 
 ```bash
-osdctl clusterdeployment list
+# Login into the hive cluster
+osdctl hive clusterdeployment list
+```
+
+### Hive ClusterSync Failures list
+
+```bash
+# Login into the hive cluster
+osdctl hive clustersync-failures
 ```
 
 ### AWS Account Federated Role Apply
@@ -275,3 +350,386 @@ osdctl federatedrole apply -u <URL>
 # apply via local file
 osdctl federatedrole apply -f <yaml file>
 ```
+
+### Cluster break-glass access
+#### Access cluster
+```bash
+# Login to the cluster's hive shard
+osdctl cluster break-glass <cluster identifier> --reason <ticket ref>
+```
+
+#### Drop cluster access
+```bash
+osdctl cluster break-glass cleanup <cluster identifier>
+# Non-PrivateLink - remove any Kubeconfig files saved locally in /tmp/
+```
+
+### Cluster Dynatrace
+#### Fetch logs from Dynatrace
+```bash
+osdctl dt logs
+```
+
+#### Gather all Pod logs and Application event from HCP
+```bash
+osdctl dt gather-logs <cluster-id>
+```
+
+#### Get Dynatrace Tenant URL for given MC or HCP cluster
+```bash
+osdctl dt url <cluster-id>
+```
+
+### Send a servicelog to a cluster
+
+#### List servicelogs
+
+```bash
+# list current servicelogs
+CLUSTERID= # can be internal/external/name, but should be unique enough
+osdctl servicelog list ${CLUSTERID}
+
+# show all servicelogs (not only ones sent by SREP)
+CLUSTERID= # can be internal/external/name, but should be unique enough
+osdctl servicelog list ${CLUSTERID} --all-messages
+```
+
+#### Post servicelogs
+
+**Notes:**
+
+* `-t` is used for loading a template from disk, or from a URI
+
+* `-i` is useful for posting an internal-only service log using a built-in template
+
+* `-r` is used to override the individual fields in the final JSON message. If it us used without `-t` or `-i` then it will provide its own defaults of `severity=Info` and `internal_only=True`, unless these are also overridden.
+
+* The `--dry-run` flag simulates the command and prints the SL without sending it.
+
+* Only valid fields (e.g summary, description, severity, internal_only) can be overridden using the `-r` flag. Invalid fields will result in errors.
+
+```bash
+CLUSTER_ID= # the unique cluster name, or internal, external id for a cluster
+TEMPLATE= # file or url in which the template exists in
+osdctl servicelog post ${CLUSTER_ID} --template=${TEMPLATE} --dry-run
+
+# Post an internal-only service log message
+osdctl servicelog post ${CLUSTER_ID} -i -p "MESSAGE=This is an internal message" --dry-run
+
+# Post a short external message
+osdctl servicelog post ${CLUSTER_ID} -r "summary=External Message" -r "description=This is an external message" -r internal_only=False --dry-run
+
+QUERIES_HERE= # queries that can be run on ocm's `clusters` resource
+TEMPLATE= # file or url in which the template exists in
+osdctl servicelog post --template=${TEMPLATE} --query=${QUERIES_HERE} --dry-run
+
+QUERIES_HERE= # queries that can be run on ocm's `clusters` resource
+# to test the queries you can run:
+# ocm list clusters --parameter search="${QUERIES_HERE}"
+cat << EOF > query_file.txt
+${QUERIES_HERE}
+EOF
+TEMPLATE= # file or url in which the template exists in
+osdctl servicelog post --template=${TEMPLATE} --query-file=query_file.txt --dry-run
+
+CLUSTER_ID= # the unique cluster name, or internal, external id for a cluster
+ANOTHER_CLUSTER_ID= # similar, but shows how to  have multiple clusters as input
+# clusters_list.json will have the custom list of clusters to iterate on
+cat << EOF > clusters_list.json
+{
+  "clusters": [
+    "${CLUSTER_ID}",
+    "${ANOTHER_CLUSTER_ID}"
+  ]
+}
+EOF
+# post servicelog to a custom set of clusters
+# EXTERNAL_ID is inferred here from the `--clusters-file`
+TEMPLATE= # file or url in which the template exists in
+osdctl servicelog post --clusters-file=clusters_list.json --template=${TEMPLATE} --dry-run
+```
+
+### Cluster environments
+
+`osdctl env` can be used to log in to several OpenShift clusters at the same time.
+Each cluster is referred to by a user-defined alias.
+`osdctl env` creates a directory in `~/ocenv/` for each cluster named by the alias.
+It contains an `.ocenv` that will set `$KUBECONFIG` and `$OCM_CONFIG` when the environment is started.
+
+You can run `osdctl env my-cluster` to create a new environment or switch between environments.
+Each environment will use a separate `$KUBECONFIG` so you can easily switch between them.
+`my-cluster` in this case is an alias that you can use to identify you cluster later.
+
+Optionally, you can run `osdctl env -c my-cluster-id my-cluster` to set the `$CLUSTERID` variable in the environment.
+This is useful to log in to OSD clusters.
+When using `ocm` you can use the shorthands `ocl` to log in to the cluster, `oct` to create a tunnel when inside the environment, and `ocb` to log in with the backplane plugin.
+
+You can leave an environment by pressing `ctrl+D`.
+
+
+### OCM Environment Auto-detection
+
+You can let osdctl detect the OCM environment and select a login script based on the environment you're currently logged in.
+This will spare you from having to pass a script with the `-l` argument each time you log in.
+To use this feature, provide your login scripts in the config file `~/.osdctl.yaml` like in the following example:
+
+```
+loginScripts:
+  https://api.stage.openshift.com: ocm-stage-login
+  https://api.openshift.com: ocm-prod-login
+  https://api.integration.openshift.com: ocm-int-login
+```
+
+#### Example workflows
+
+##### Use backplane to log in to OSD cluster and come back later
+
+```
+$ osdctl env -l prod-login.sh -c hf203489-23fsdf-23rsdf my-cluster
+$ ocb # login to the cluster
+$ exit # tunnel and login loop will be closed on exit
+...
+$ osdctl env my-cluster # no need to setup and remember everything again
+$ ocb # login to the cluster
+$ exit
+```
+
+##### Create a temporary environment for a quick investigation
+
+```
+$ osdctl env -l prod-login.sh -t -c hf203489-23fsdf-23rsdf
+$ ocb # login to the cluster
+$ oc get pods .... # investigate
+$ exit # tunnel and login loop will be closed on exit, environment will be cleaned up.
+```
+
+##### Use KUBECONFIG outside of the env
+
+```
+$ osdctl env -l prod-login.sh -t -c hf203489-23fsdf-23rsdf my-cluster
+$ ocb # login to the cluster
+... in some other shell ...
+$ `osdctl env -k my-cluster` # use KUBECONFIG from environment
+$ oc get pods ...
+```
+
+##### Logging in to Individual Clusters
+
+`osdctl env` supports creating environments for non-ocm-managed clusters as well.
+You can either provide an API URL or an existing KUBECONFIG.
+
+###### With Username and Password
+
+Set username, API url, and (optionally) password
+
+```
+$ osdctl env -u myuser -p topsecret -a https://api.mycluster.com:6443 mycluster
+```
+
+Careful: The password will be stored in clear text if you pass it.
+In most cases it will be better to read it from STDIN on login.
+
+log in with `ocl`
+
+```
+$ ocl
+```
+
+###### With existing KUBECONFIG
+
+Log in with a kubeconfig that exists in the filesystem:
+
+```
+$ osdctl env --kubeconfig ~/kube/config mycluster
+```
+
+Log in with a kubeconfig from clipboard (linux with xclip):
+
+```
+$ osdctl env --kubeconfig <(xclip -o) mycluster
+```
+
+Log in with a kubeconfig from clipboard (Mac):
+
+```
+$ osdctl env --kubeconfig <(pbpaste) mycluster
+```
+
+### Network Utilities
+
+#### OSD network verifier
+1. Egress test - [SOP](https://github.com/openshift/ops-sop/blob/master/v4/knowledge_base/osd-network-verifier.md)
+
+  ```bash
+  osdctl network verify-egress --cluster-id "${CLUSTER_ID}"
+  ```
+
+### Organizations
+
+#### Get the current organization
+ ```
+$ osdctl org current
+```
+
+#### Search organizations
+
+Get an organization by username 
+ ```
+$ osdctl org get --user=<search-user-name>
+```
+
+Get organizations by part-matching username
+ ```
+$ osdctl org get --user=<search-user-name-like> --part-match
+```
+
+Get an organization by ebs account id
+ ```
+$ osdctl org get --ebs-id=<ebs-account-id>
+```
+
+#### Describe an organization
+ ```
+$ osdctl org describe  <orgid>
+```
+
+#### List users in the organization
+ ```
+$ osdctl org users <orgid>
+```
+
+#### List labels in the organization
+ ```
+$ osdctl org labels <orgid>
+```
+
+#### List clusters in the organization
+Get all clusters in the organization
+ ```
+$ osdctl org clusters <orgid>
+```
+
+Get active clusters in the organization
+ ```
+$ osdctl org clusters <orgid> --active
+```
+
+Get organization clusters from AWS profile and account id
+ ```
+$ osdctl org clusters --aws-profile="<aws-profile>"  --aws-account-id="<aws-account-id>"
+```
+
+#### List paying and non-paying organization
+paying customers list 
+ ```
+$ osdctl org customers
+```
+
+non-paying customers list 
+ ```
+$ osdctl org customers --paying=false
+```
+
+#### List AWS accounts for the given organization unit id
+```
+$ osdctl org aws-accounts --aws-profile="<aws-profile>" ou-id="<ou-id>"
+```
+
+
+#### Run etcd health check for a cluster
+```
+osdctl cluster etcd-health-check <internal-cluster-id>
+```
+
+#### Run etcd member replacement for a cluster
+```
+osdctl cluster etcd-member-replace <internal-cluster-id> --node <node-id>
+```
+Note : Here node-id refers to the node that has the unhealthy etcd member. This can be found out from `etcd-health-check`
+
+#### SRE Oncall retrieves unassigned tickets from Jira
+##### Prerequisite: Env variable: JIRA_API_TOKEN contains valid authentication tokens
+```
+osdctl swarm secondary
+```
+
+### Feature Testing Evidence Collection
+
+These commands help SRE teams collect evidence during feature validation testing (IAM policies, operators, etc.).
+
+#### CloudTrail Errors
+
+Surface permission errors and other AWS API errors from CloudTrail. Useful when validating new IAM policies or features that interact with AWS APIs.
+
+```bash
+# Get permission errors from the last hour
+osdctl cloudtrail errors -C <cluster-id> --since 1h
+
+# Get errors from the last 30 minutes with JSON output
+osdctl cloudtrail errors -C <cluster-id> --since 30m --json
+
+# Get errors with AWS console links
+osdctl cloudtrail errors -C <cluster-id> --since 2h --url
+
+# Filter for specific error types
+osdctl cloudtrail errors -C <cluster-id> --since 1h --error-types AccessDenied,UnauthorizedOperation
+```
+
+**Note:** For ROSA HCP clusters, CloudTrail events only show customer account activity. Control plane activity is in Red Hat's account and not visible.
+
+#### Cluster Snapshot
+
+Capture a point-in-time snapshot of cluster state for evidence collection. The snapshot includes nodes, ClusterOperators, and namespaces.
+
+```bash
+# Capture cluster snapshot to a file
+osdctl cluster snapshot -C <cluster-id> -o before.yaml
+
+# Capture snapshot with specific namespaces
+osdctl cluster snapshot -C <cluster-id> -o snapshot.yaml --namespaces openshift-monitoring,openshift-operators
+
+# Capture additional resource types
+osdctl cluster snapshot -C <cluster-id> -o snapshot.yaml --resources pods,deployments,services
+```
+
+#### Cluster Diff
+
+Compare two cluster snapshots to identify changes. Useful for understanding what changed during feature testing.
+
+```bash
+# Compare two snapshots
+osdctl cluster diff before.yaml after.yaml
+
+# Compare snapshots with JSON output
+osdctl cluster diff before.yaml after.yaml --json
+```
+
+Changes are categorized as:
+- `+` added: Resource exists in after but not in before
+- `-` removed: Resource exists in before but not in after
+- `~` modified: Resource exists in both but with different values
+
+#### Evidence Collection (All-in-One)
+
+Collect comprehensive evidence from a cluster and AWS for feature testing. This all-in-one command gathers cluster state, CloudTrail events, and optionally Kubernetes events and must-gather output.
+
+```bash
+# Collect all evidence to a directory
+osdctl evidence collect -C <cluster-id> --output ./evidence/
+
+# Collect evidence from the last 2 hours
+osdctl evidence collect -C <cluster-id> --output ./evidence/ --since 2h
+
+# Collect evidence without CloudTrail (for non-AWS or limited access)
+osdctl evidence collect -C <cluster-id> --output ./evidence/ --skip-cloudtrail
+
+# Include Kubernetes events in collection
+osdctl evidence collect -C <cluster-id> --output ./evidence/ --include-events
+
+# Include must-gather output
+osdctl evidence collect -C <cluster-id> --output ./evidence/ --include-must-gather
+```
+
+The collected evidence includes:
+- `evidence.yaml` - Main evidence file with cluster state and CloudTrail data
+- `summary.txt` - Human-readable summary of findings

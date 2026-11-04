@@ -2,21 +2,90 @@ package mgmt
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/iam"
-	"github.com/aws/aws-sdk-go/service/organizations"
-
-	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
-	"github.com/golang/mock/gomock"
+	awsSdk "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	iamTypes "github.com/aws/aws-sdk-go-v2/service/iam/types"
+	"github.com/aws/aws-sdk-go-v2/service/organizations"
+	organizationTypes "github.com/aws/aws-sdk-go-v2/service/organizations/types"
+	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
+	resourceGroupsTaggingApiTypes "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	stsTypes "github.com/aws/aws-sdk-go-v2/service/sts/types"
+	"github.com/openshift/osdctl/internal/utils/globalflags"
+	awsInternal "github.com/openshift/osdctl/pkg/provider/aws"
 	"github.com/openshift/osdctl/pkg/provider/aws/mock"
-
-	"k8s.io/apimachinery/pkg/runtime"
+	"github.com/spf13/viper"
+	"go.uber.org/mock/gomock"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 )
 
-func TestCheckForHiveNameTage(t *testing.T) {
-	var genericAWSError error = fmt.Errorf("Generic AWS Error")
+func TestAssumeRoleForAccount(t *testing.T) {
+	viper.Set(awsInternal.ProxyConfigKey, "a-random-proxy")
+	mocks := setupDefaultMocks(t)
+
+	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
+
+	accountId := "111111111111"
+	accessKeyID := awsSdk.String("randAccessKeyId")
+	secretAccessKey := awsSdk.String("randSecretAccessKey")
+	sessionToken := awsSdk.String("randSessionToken")
+
+	awsAssumeRoleOutput := &sts.AssumeRoleOutput{
+		Credentials: &stsTypes.Credentials{
+			AccessKeyId:     accessKeyID,
+			SecretAccessKey: secretAccessKey,
+			SessionToken:    sessionToken,
+		},
+	}
+
+	mockAWSClient.EXPECT().AssumeRole(gomock.Any()).Return(
+		awsAssumeRoleOutput,
+		nil,
+	)
+
+	o := &accountUnassignOptions{}
+	o.awsClient = mockAWSClient
+	returnVal, err := o.assumeRoleForAccount(accountId)
+	if err != nil {
+		t.Errorf("failed to assume role")
+	}
+	if returnVal == nil {
+		t.Error("no awsclient returned")
+	}
+}
+
+func TestListUsersFromAccount(t *testing.T) {
+
+	mocks := setupDefaultMocks(t)
+
+	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
+
+	awsOutput := &iam.ListUsersOutput{
+		Users: []iamTypes.User{
+			{
+				UserName: awsSdk.String("user")},
+		}}
+
+	mockAWSClient.EXPECT().ListUsers(gomock.Any()).Return(
+		awsOutput,
+		nil,
+	)
+
+	o := &accountUnassignOptions{}
+	o.awsClient = mockAWSClient
+	returnVal, err := listUsersFromAccount(mockAWSClient)
+	if err != nil {
+		t.Errorf("failed to list iam users")
+	}
+	if len(returnVal) < 1 {
+		t.Errorf("empty iam users list")
+	}
+}
+func TestCheckForHiveNameTags(t *testing.T) {
+	var genericAWSError = fmt.Errorf("Generic AWS Error")
 
 	testData := []struct {
 		name             string
@@ -72,18 +141,18 @@ func TestCheckForHiveNameTage(t *testing.T) {
 
 	for _, test := range testData {
 		t.Run(test.name, func(t *testing.T) {
-			mocks := setupDefaultMocks(t, []runtime.Object{})
+			mocks := setupDefaultMocks(t)
 
 			mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
 			accountID := "111111111111"
 
 			awsOutput := &organizations.ListTagsForResourceOutput{}
 			if test.expectedAWSError == nil {
-				tags := []*organizations.Tag{}
+				var tags []organizationTypes.Tag
 				for key, value := range test.tags {
-					tag := &organizations.Tag{
-						Key:   aws.String(key),
-						Value: aws.String(value),
+					tag := organizationTypes.Tag{
+						Key:   awsSdk.String(key),
+						Value: awsSdk.String(value),
 					}
 					tags = append(tags, tag)
 				}
@@ -109,33 +178,105 @@ func TestCheckForHiveNameTage(t *testing.T) {
 }
 
 func TestUnassignMoveAccount(t *testing.T) {
+	tests := []struct {
+		name     string
+		parentID string
+	}{
+		{
+			name:     "moves an account from the legacy staging-1 OU",
+			parentID: "ou-0wd6-z6tzkjek",
+		},
+		{
+			name:     "moves an account from the current staging-1 OU",
+			parentID: "ou-0wd6-x0ri0jpn",
+		},
+	}
 
-	mocks := setupDefaultMocks(t, []runtime.Object{})
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mocks := setupDefaultMocks(t)
+			mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
 
+			accountID := "111111111111"
+			rootID := OSDStaging1RootID
+			parentID := test.parentID
+
+			mockAWSClient.EXPECT().ListParents(&organizations.ListParentsInput{
+				ChildId: &accountID,
+			}).Return(&organizations.ListParentsOutput{
+				Parents: []organizationTypes.Parent{{Id: &parentID}},
+			}, nil)
+			mockAWSClient.EXPECT().MoveAccount(&organizations.MoveAccountInput{
+				AccountId:           &accountID,
+				DestinationParentId: &rootID,
+				SourceParentId:      &parentID,
+			}).Return(&organizations.MoveAccountOutput{}, nil)
+
+			o := &accountUnassignOptions{awsClient: mockAWSClient}
+			if err := o.moveAccount(accountID, rootID); err != nil {
+				t.Fatalf("failed to move account: %v", err)
+			}
+		})
+	}
+}
+
+func TestUnassignMoveAccountAlreadyAtRoot(t *testing.T) {
+	mocks := setupDefaultMocks(t)
 	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
 
-	accountId := "111111111111"
-	destOu := "abc-vnjfdshs"
-	rootOu := "abc"
+	accountID := "111111111111"
+	rootID := OSDStaging1RootID
 
-	awsOutputMove := &organizations.MoveAccountOutput{}
+	mockAWSClient.EXPECT().ListParents(&organizations.ListParentsInput{
+		ChildId: &accountID,
+	}).Return(&organizations.ListParentsOutput{
+		Parents: []organizationTypes.Parent{{Id: &rootID}},
+	}, nil)
 
-	mockAWSClient.EXPECT().MoveAccount(gomock.Any()).Return(
-		awsOutputMove,
-		nil,
-	)
+	o := &accountUnassignOptions{awsClient: mockAWSClient}
+	if err := o.moveAccount(accountID, rootID); err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+}
 
-	o := &accountUnassignOptions{}
-	o.awsClient = mockAWSClient
-	err := o.moveAccount(accountId, rootOu, destOu)
-	if err != nil {
-		t.Errorf("failed to move account")
+func TestUnassignMoveAccountParentLookupError(t *testing.T) {
+	mocks := setupDefaultMocks(t)
+	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
+
+	accountID := "111111111111"
+	expectedErr := fmt.Errorf("list parents failed")
+
+	mockAWSClient.EXPECT().ListParents(&organizations.ListParentsInput{
+		ChildId: &accountID,
+	}).Return(nil, expectedErr)
+
+	o := &accountUnassignOptions{awsClient: mockAWSClient}
+	err := o.moveAccount(accountID, OSDStaging1RootID)
+	if err != expectedErr {
+		t.Fatalf("expected error %v, got %v", expectedErr, err)
+	}
+}
+
+func TestUnassignMoveAccountMissingParent(t *testing.T) {
+	mocks := setupDefaultMocks(t)
+	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
+
+	accountID := "111111111111"
+
+	mockAWSClient.EXPECT().ListParents(&organizations.ListParentsInput{
+		ChildId: &accountID,
+	}).Return(&organizations.ListParentsOutput{}, nil)
+
+	o := &accountUnassignOptions{awsClient: mockAWSClient}
+	err := o.moveAccount(accountID, OSDStaging1RootID)
+	if err == nil || !strings.Contains(err.Error(), "no parent found for account") {
+		t.Fatalf("expected missing parent error, got %v", err)
 	}
 }
 
 func TestListAccountsFromUser(t *testing.T) {
 
-	var genericAWSError error = fmt.Errorf("Generic AWS Error")
+	var genericAWSError = fmt.Errorf("Generic AWS Error")
 
 	testData := []struct {
 		name                string
@@ -169,7 +310,7 @@ func TestListAccountsFromUser(t *testing.T) {
 
 	for _, test := range testData {
 		t.Run(test.name, func(t *testing.T) {
-			mocks := setupDefaultMocks(t, []runtime.Object{})
+			mocks := setupDefaultMocks(t)
 
 			mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
 
@@ -177,10 +318,10 @@ func TestListAccountsFromUser(t *testing.T) {
 
 			awsOutput := &resourcegroupstaggingapi.GetResourcesOutput{}
 			if test.expectedAWSError == nil {
-				resources := []*resourcegroupstaggingapi.ResourceTagMapping{}
+				var resources []resourceGroupsTaggingApiTypes.ResourceTagMapping
 				for _, r := range test.resources {
-					resource := &resourcegroupstaggingapi.ResourceTagMapping{
-						ResourceARN: aws.String(r),
+					resource := resourceGroupsTaggingApiTypes.ResourceTagMapping{
+						ResourceARN: &r,
 					}
 					resources = append(resources, resource)
 				}
@@ -207,7 +348,7 @@ func TestListAccountsFromUser(t *testing.T) {
 
 func TestDeleteProfile(t *testing.T) {
 
-	mocks := setupDefaultMocks(t, []runtime.Object{})
+	mocks := setupDefaultMocks(t)
 
 	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
 	userName := "randuser"
@@ -227,16 +368,16 @@ func TestDeleteProfile(t *testing.T) {
 
 func TestDeleteAccessKey(t *testing.T) {
 
-	mocks := setupDefaultMocks(t, []runtime.Object{})
+	mocks := setupDefaultMocks(t)
 
 	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
 	userName := "randuser"
 
-	expectedAccessKeyID := aws.String("expectedAccessKeyID")
+	expectedAccessKeyID := awsSdk.String("expectedAccessKeyID")
 
 	mockAWSClient.EXPECT().ListAccessKeys(&iam.ListAccessKeysInput{UserName: &userName}).Return(
 		&iam.ListAccessKeysOutput{
-			AccessKeyMetadata: []*iam.AccessKeyMetadata{
+			AccessKeyMetadata: []iamTypes.AccessKeyMetadata{
 				{
 					AccessKeyId: expectedAccessKeyID,
 				},
@@ -263,16 +404,16 @@ func TestDeleteAccessKey(t *testing.T) {
 
 func TestDeleteSigningCert(t *testing.T) {
 
-	mocks := setupDefaultMocks(t, []runtime.Object{})
+	mocks := setupDefaultMocks(t)
 
 	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
 	userName := "randuser"
 
-	expectedCertificateId := aws.String("expectedCertificateId")
+	expectedCertificateId := awsSdk.String("expectedCertificateId")
 
 	mockAWSClient.EXPECT().ListSigningCertificates(&iam.ListSigningCertificatesInput{UserName: &userName}).Return(
 		&iam.ListSigningCertificatesOutput{
-			Certificates: []*iam.SigningCertificate{
+			Certificates: []iamTypes.SigningCertificate{
 				{
 					CertificateId: expectedCertificateId,
 				},
@@ -300,7 +441,7 @@ func TestDeleteSigningCert(t *testing.T) {
 
 func TestDeletePolicies(t *testing.T) {
 
-	mocks := setupDefaultMocks(t, []runtime.Object{})
+	mocks := setupDefaultMocks(t)
 
 	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
 	userName := "randuser"
@@ -310,8 +451,8 @@ func TestDeletePolicies(t *testing.T) {
 		&iam.ListUserPoliciesInput{UserName: &userName},
 	).Return(
 		&iam.ListUserPoliciesOutput{
-			PolicyNames: []*string{
-				&expectedPolicyName,
+			PolicyNames: []string{
+				expectedPolicyName,
 			},
 		},
 		nil,
@@ -327,7 +468,38 @@ func TestDeletePolicies(t *testing.T) {
 
 	o := &accountUnassignOptions{}
 	o.awsClient = mockAWSClient
-	err := o.deletePolicies(userName)
+	err := o.deleteUserPolicies(userName)
+	if err != nil {
+		t.Errorf("failed to delete user policies")
+	}
+}
+
+func TestDeleteAccountPolicies(t *testing.T) {
+
+	mocks := setupDefaultMocks(t)
+
+	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
+
+	expectedPolicyArn := "ExpectedPolicyArn"
+	mockAWSClient.EXPECT().ListPolicies(
+		&iam.ListPoliciesInput{Scope: "Local"},
+	).Return(
+		&iam.ListPoliciesOutput{
+			Policies: []iamTypes.Policy{
+				{Arn: &expectedPolicyArn},
+			},
+		},
+		nil,
+	)
+	mockAWSClient.EXPECT().DeletePolicy(
+		&iam.DeletePolicyInput{
+			PolicyArn: &expectedPolicyArn,
+		},
+	).Return(
+		nil, nil,
+	)
+
+	err := deleteAccountPolicies(mockAWSClient)
 	if err != nil {
 		t.Errorf("failed to delete user policies")
 	}
@@ -335,7 +507,7 @@ func TestDeletePolicies(t *testing.T) {
 
 func TestDeleteAttachedPolicies(t *testing.T) {
 
-	mocks := setupDefaultMocks(t, []runtime.Object{})
+	mocks := setupDefaultMocks(t)
 
 	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
 	userName := "randuser"
@@ -345,10 +517,10 @@ func TestDeleteAttachedPolicies(t *testing.T) {
 		&iam.ListAttachedUserPoliciesInput{UserName: &userName},
 	).Return(
 		&iam.ListAttachedUserPoliciesOutput{
-			AttachedPolicies: []*iam.AttachedPolicy{
+			AttachedPolicies: []iamTypes.AttachedPolicy{
 				{
 					PolicyArn:  &expectedPolicyArn,
-					PolicyName: aws.String("ExpectedPolicyName"),
+					PolicyName: awsSdk.String("ExpectedPolicyName"),
 				},
 			},
 		},
@@ -371,9 +543,65 @@ func TestDeleteAttachedPolicies(t *testing.T) {
 	}
 }
 
+func TestDeleteRoles(t *testing.T) {
+	mocks := setupDefaultMocks(t)
+
+	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
+
+	roleName := awsSdk.String("randomRoleName")
+
+	awsRolesOutput := &iam.ListRolesOutput{
+		Roles: []iamTypes.Role{
+			{
+				RoleName: roleName,
+			},
+		},
+	}
+
+	mockAWSClient.EXPECT().ListRoles(gomock.Any()).Return(
+		awsRolesOutput,
+		nil,
+	)
+
+	awsListAttachedRolePolOutput := &iam.ListAttachedRolePoliciesOutput{
+		AttachedPolicies: []iamTypes.AttachedPolicy{
+			{
+				PolicyArn: awsSdk.String("randomPol"),
+			},
+		},
+	}
+
+	mockAWSClient.EXPECT().ListAttachedRolePolicies(gomock.Any()).Return(
+		awsListAttachedRolePolOutput,
+		nil,
+	)
+
+	mockAWSClient.EXPECT().DetachRolePolicy(gomock.Any()).Return(
+		&iam.DetachRolePolicyOutput{},
+		nil,
+	)
+
+	awsDeleteRolesOutput := &iam.DeleteRoleOutput{}
+	mockAWSClient.EXPECT().DeleteRole(
+		&iam.DeleteRoleInput{
+			RoleName: roleName,
+		},
+	).Return(
+		awsDeleteRolesOutput,
+		nil,
+	)
+
+	o := &accountUnassignOptions{}
+	o.awsClient = mockAWSClient
+	err := deleteRoles(mockAWSClient)
+	if err != nil {
+		t.Errorf("failed to delete roles")
+	}
+}
+
 func TestDeleteGroups(t *testing.T) {
 
-	mocks := setupDefaultMocks(t, []runtime.Object{})
+	mocks := setupDefaultMocks(t)
 
 	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
 	userName := "randuser"
@@ -384,7 +612,7 @@ func TestDeleteGroups(t *testing.T) {
 		&iam.ListGroupsForUserInput{UserName: &userName},
 	).Return(
 		&iam.ListGroupsForUserOutput{
-			Groups: []*iam.Group{
+			Groups: []iamTypes.Group{
 				{
 					GroupName: &expectedGroupName,
 				},
@@ -412,7 +640,7 @@ func TestDeleteGroups(t *testing.T) {
 
 func TestDeleteUser(t *testing.T) {
 
-	mocks := setupDefaultMocks(t, []runtime.Object{})
+	mocks := setupDefaultMocks(t)
 
 	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
 	userName := "randuser"
@@ -433,7 +661,7 @@ func TestDeleteUser(t *testing.T) {
 
 func TestUntagAccount(t *testing.T) {
 
-	mocks := setupDefaultMocks(t, []runtime.Object{})
+	mocks := setupDefaultMocks(t)
 
 	mockAWSClient := mock.NewMockClient(mocks.mockCtrl)
 
@@ -449,5 +677,19 @@ func TestUntagAccount(t *testing.T) {
 	err := o.untagAccount(accountId)
 	if err != nil {
 		t.Errorf("failed to untag aws account")
+	}
+}
+
+func TestConflictingOptions(t *testing.T) {
+	s := genericclioptions.IOStreams{}
+	g := globalflags.GlobalOptions{}
+	cmd := newCmdAccountAssign(s, &g)
+	o := &accountUnassignOptions{}
+	o.payerAccount = "fake account"
+	o.accountID = "123456"
+	o.username = "testuser"
+	err := o.complete(cmd, []string{})
+	if err == nil {
+		t.Errorf("An error should have been raised")
 	}
 }

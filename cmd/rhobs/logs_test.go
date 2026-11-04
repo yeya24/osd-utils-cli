@@ -1,0 +1,432 @@
+package rhobs
+
+import (
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+)
+
+// --- logsClusterExtId ---
+
+func TestLogsClusterExtId(t *testing.T) {
+	tests := []struct {
+		name              string
+		clusterExternalId string
+		mcExternalId      string
+		isHostedCluster   bool
+		want              string
+	}{
+		{
+			name:              "non-HCP cluster uses its own external ID",
+			clusterExternalId: "cluster-ext-id",
+			mcExternalId:      "",
+			isHostedCluster:   false,
+			want:              "cluster-ext-id",
+		},
+		{
+			name:              "MC cluster uses its own external ID",
+			clusterExternalId: "mc-ext-id",
+			mcExternalId:      "",
+			isHostedCluster:   false,
+			want:              "mc-ext-id",
+		},
+		{
+			name:              "HCP cluster with MC external ID uses MC's UUID",
+			clusterExternalId: "hcp-ext-id",
+			mcExternalId:      "mc-ext-id",
+			isHostedCluster:   true,
+			want:              "mc-ext-id",
+		},
+		{
+			name:              "HCP cluster without MC external ID falls back to own UUID",
+			clusterExternalId: "hcp-ext-id",
+			mcExternalId:      "",
+			isHostedCluster:   true,
+			want:              "hcp-ext-id",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &RhobsFetcher{
+				clusterExternalId: tt.clusterExternalId,
+				mcExternalId:      tt.mcExternalId,
+				IsHostedCluster:   tt.isHostedCluster,
+			}
+			got := f.logsClusterExtId()
+			if got != tt.want {
+				t.Errorf("logsClusterExtId() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// --- resolveLogsNamespace ---
+
+func TestResolveLogsNamespace(t *testing.T) {
+	tests := []struct {
+		name                   string
+		isHostedCluster        bool
+		hcpNamespace           string
+		namespaceExplicitlySet bool
+		defaultNamespace       string
+		want                   string
+	}{
+		{
+			name:                   "non-HCP cluster keeps default namespace",
+			isHostedCluster:        false,
+			hcpNamespace:           "",
+			namespaceExplicitlySet: false,
+			defaultNamespace:       "default",
+			want:                   "default",
+		},
+		{
+			name:                   "HCP cluster without HcpNamespace keeps default",
+			isHostedCluster:        true,
+			hcpNamespace:           "",
+			namespaceExplicitlySet: false,
+			defaultNamespace:       "default",
+			want:                   "default",
+		},
+		{
+			name:                   "HCP cluster uses HCP control-plane namespace",
+			isHostedCluster:        true,
+			hcpNamespace:           "ocm-production-abc123-ns",
+			namespaceExplicitlySet: false,
+			defaultNamespace:       "default",
+			want:                   "ocm-production-abc123-ns",
+		},
+		{
+			name:                   "HCP cluster respects explicit namespace override",
+			isHostedCluster:        true,
+			hcpNamespace:           "ocm-production-abc123-ns",
+			namespaceExplicitlySet: true,
+			defaultNamespace:       "custom-ns",
+			want:                   "custom-ns",
+		},
+		{
+			name:                   "non-HCP cluster respects explicit namespace override",
+			isHostedCluster:        false,
+			hcpNamespace:           "",
+			namespaceExplicitlySet: true,
+			defaultNamespace:       "openshift-monitoring",
+			want:                   "openshift-monitoring",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &RhobsFetcher{
+				IsHostedCluster: tt.isHostedCluster,
+				HcpNamespace:    tt.hcpNamespace,
+			}
+			got := resolveLogsNamespace(f, tt.namespaceExplicitlySet, tt.defaultNamespace)
+			if got != tt.want {
+				t.Errorf("resolveLogsNamespace() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// --- CreateRhobsFetcherFromCell ---
+
+func TestCreateRhobsFetcherFromCell(t *testing.T) {
+	tests := []struct {
+		name      string
+		cellUrl   string
+		wantEnv   string
+		wantError bool
+	}{
+		{
+			name:    "production cell",
+			cellUrl: "https://us-east-1-0.rhobs.api.openshift.com",
+			wantEnv: "production",
+		},
+		{
+			name:    "stage cell",
+			cellUrl: "https://us-east-1-0.rhobs.api.stage.openshift.com",
+			wantEnv: "stage",
+		},
+		{
+			name:    "integration cell",
+			cellUrl: "https://eu-central-1-0.rhobs.api.integration.openshift.com",
+			wantEnv: "integration",
+		},
+		{
+			name:      "invalid cell URL",
+			cellUrl:   "https://invalid.example.com",
+			wantError: true,
+		},
+		{
+			name:      "URL with query string bypass",
+			cellUrl:   "https://attacker.invalid/?x=.rhobs.api.openshift.com",
+			wantError: true,
+		},
+		{
+			name:      "URL with path bypass",
+			cellUrl:   "https://attacker.invalid/path.rhobs.api.openshift.com",
+			wantError: true,
+		},
+		{
+			name: "URL with userinfo",
+			cellUrl: (&url.URL{
+				Scheme: "https",
+				Host:   "us-east-1-0.rhobs.api.stage.openshift.com",
+				User:   url.UserPassword("user", "pass"),
+			}).String(),
+			wantError: true,
+		},
+		{
+			name:      "non-https scheme",
+			cellUrl:   "http://us-east-1-0.rhobs.api.stage.openshift.com",
+			wantError: true,
+		},
+		{
+			name:      "URL with trailing empty query",
+			cellUrl:   "https://us-east-1-0.rhobs.api.stage.openshift.com?",
+			wantError: true,
+		},
+		{
+			name:      "URL with custom port",
+			cellUrl:   "https://us-east-1-0.rhobs.api.stage.openshift.com:8443",
+			wantError: true,
+		},
+		{
+			name:      "URL with default port",
+			cellUrl:   "https://us-east-1-0.rhobs.api.stage.openshift.com:443",
+			wantError: true,
+		},
+		{
+			name:      "bare production suffix",
+			cellUrl:   "https://.rhobs.api.openshift.com",
+			wantError: true,
+		},
+		{
+			name:      "bare stage suffix",
+			cellUrl:   "https://.rhobs.api.stage.openshift.com",
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fetcher, err := CreateRhobsFetcherFromCell(tt.cellUrl)
+			if tt.wantError {
+				if err == nil {
+					t.Error("expected error for invalid cell URL")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if fetcher.ocmEnvName != tt.wantEnv {
+				t.Errorf("ocmEnvName = %q, want %q", fetcher.ocmEnvName, tt.wantEnv)
+			}
+			if fetcher.RhobsCell != tt.cellUrl {
+				t.Errorf("RhobsCell = %q, want %q", fetcher.RhobsCell, tt.cellUrl)
+			}
+			if fetcher.clusterExternalId != "" {
+				t.Error("clusterExternalId should be empty for cell-based fetcher")
+			}
+			if fetcher.clusterId != "" {
+				t.Error("clusterId should be empty for cell-based fetcher")
+			}
+		})
+	}
+}
+
+// --- CLI --rhobs-cell flag ---
+
+func TestLogsCommand_RhobsCellFlag(t *testing.T) {
+	cmd := newCmdLogs()
+
+	// Verify --rhobs-cell flag exists
+	flag := cmd.Flags().Lookup("rhobs-cell")
+	if flag == nil {
+		t.Fatal("--rhobs-cell flag not found on logs command")
+	}
+	if flag.DefValue != "" {
+		t.Errorf("--rhobs-cell default should be empty, got %q", flag.DefValue)
+	}
+}
+
+// --- GetGrafanaLogsUrl ---
+
+func TestGetGrafanaLogsUrl(t *testing.T) {
+	f := &RhobsFetcher{
+		RhobsCell:  "https://eu-central-1-0.rhobs.api.openshift.com",
+		ocmEnvName: "production",
+	}
+
+	now := time.Now()
+	start := now.Add(-5 * time.Minute)
+
+	tests := []struct {
+		name           string
+		lokiExpr       string
+		isGoingForward bool
+	}{
+		{
+			name:           "HCP corrected query - backward",
+			lokiExpr:       `{k8s_namespace_name="ocm-production-abc123-ns"} | json json_kind="kind" | json_kind != "Event" | openshift_cluster_uid = "mc-ext-uuid"`,
+			isGoingForward: false,
+		},
+		{
+			name:           "MC query - forward",
+			lokiExpr:       `{k8s_namespace_name="default"} | json json_kind="kind" | json_kind != "Event" | openshift_cluster_uid = "mc-ext-uuid"`,
+			isGoingForward: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotURL, err := f.GetGrafanaLogsUrl(tt.lokiExpr, start, now, tt.isGoingForward)
+			if err != nil {
+				t.Fatalf("GetGrafanaLogsUrl returned error: %v", err)
+			}
+			if gotURL == "" {
+				t.Fatal("expected non-empty URL")
+			}
+			if !strings.Contains(gotURL, "grafana.app-sre.devshift.net") {
+				t.Errorf("URL should point to Grafana, got: %s", gotURL)
+			}
+			if !strings.Contains(gotURL, "explore") {
+				t.Errorf("URL should be an explore URL, got: %s", gotURL)
+			}
+		})
+	}
+}
+
+// TestGetGrafanaLogsUrl_EncodesLokiExpr verifies that the Loki expression ends up
+// URL-encoded in the produced Grafana URL (not literally embedded as plain text).
+func TestGetGrafanaLogsUrl_EncodesLokiExpr(t *testing.T) {
+	f := &RhobsFetcher{
+		RhobsCell:  "https://eu-central-1-0.rhobs.api.openshift.com",
+		ocmEnvName: "production",
+	}
+
+	expr := `{k8s_namespace_name="ocm-production-abc123-ns"} | openshift_cluster_uid = "mc-uuid"`
+	now := time.Now()
+
+	gotURL, err := f.GetGrafanaLogsUrl(expr, now.Add(-5*time.Minute), now, false)
+	if err != nil {
+		t.Fatalf("GetGrafanaLogsUrl returned error: %v", err)
+	}
+
+	// The raw expression must not appear verbatim: it should be JSON/URL-encoded.
+	if strings.Contains(gotURL, `{k8s_namespace_name=`) {
+		t.Errorf("Loki expression appears unencoded in URL: %s", gotURL)
+	}
+}
+
+// TestHcpLogsQueryDiffersFromStandard verifies the two code-paths produce different
+// Grafana URLs — confirming that the HCP fix actually changes the output.
+func TestHcpLogsQueryDiffersFromStandard(t *testing.T) {
+	f := &RhobsFetcher{
+		RhobsCell:  "https://us-east-1-1.rhobs.api.openshift.com",
+		ocmEnvName: "production",
+	}
+
+	now := time.Now()
+	start := now.Add(-5 * time.Minute)
+
+	brokenExpr := `{k8s_namespace_name="default"} | json json_kind="kind" | json_kind != "Event" | openshift_cluster_uid = "hcp-ext-uuid"`
+	fixedExpr := `{k8s_namespace_name="ocm-production-abc123-ns"} | json json_kind="kind" | json_kind != "Event" | openshift_cluster_uid = "mc-ext-uuid"`
+
+	brokenURL, err := f.GetGrafanaLogsUrl(brokenExpr, start, now, false)
+	if err != nil {
+		t.Fatalf("broken URL generation failed: %v", err)
+	}
+	fixedURL, err := f.GetGrafanaLogsUrl(fixedExpr, start, now, false)
+	if err != nil {
+		t.Fatalf("fixed URL generation failed: %v", err)
+	}
+
+	if brokenURL == fixedURL {
+		t.Error("broken and fixed Loki expressions should produce different Grafana URLs")
+	}
+}
+
+// --- --dedupe ---
+
+func newTestLogResult(message string, fields map[string]string) *logResult {
+	values := []string{"0", message}
+	return &logResult{
+		Stream: fields,
+		Values: []*[]string{&values},
+	}
+}
+
+func TestLogDedupeBuffer(t *testing.T) {
+	fields := []string{"k8s_pod_name"}
+	buf := &logDedupeBuffer{fieldNames: fields}
+
+	r1 := newTestLogResult("reconcile failed", map[string]string{"k8s_pod_name": "controller"})
+	r2 := newTestLogResult("reconcile failed", map[string]string{"k8s_pod_name": "controller"})
+	r3 := newTestLogResult("reconcile failed", map[string]string{"k8s_pod_name": "controller"})
+	r4 := newTestLogResult("other error", map[string]string{"k8s_pod_name": "controller"})
+	r5 := newTestLogResult("other error", map[string]string{"k8s_pod_name": "other-pod"})
+
+	if isNew, ended, count := buf.push(r1); !isNew || ended != nil || count != 0 {
+		t.Fatalf("first push should be new with nothing ended, got isNew=%v ended=%v count=%d", isNew, ended != nil, count)
+	}
+	if isNew, ended, count := buf.push(r2); isNew || ended != nil || count != 0 {
+		t.Fatalf("duplicate push should not be new, got isNew=%v ended=%v count=%d", isNew, ended != nil, count)
+	}
+	if isNew, ended, count := buf.push(r3); isNew || ended != nil || count != 0 {
+		t.Fatalf("duplicate push should not be new, got isNew=%v ended=%v count=%d", isNew, ended != nil, count)
+	}
+
+	isNew, ended, count := buf.push(r4)
+	if !isNew || ended == nil || count != 3 {
+		t.Fatalf("message change should be new and end streak of 3, got isNew=%v ended=%v count=%d", isNew, ended != nil, count)
+	}
+	if ended.getMessage() != "reconcile failed" {
+		t.Errorf("ended message = %q, want reconcile failed", ended.getMessage())
+	}
+
+	isNew, ended, count = buf.push(r5)
+	if !isNew || ended == nil || count != 1 {
+		t.Fatalf("pod change should be new and end streak of 1, got isNew=%v ended=%v count=%d", isNew, ended != nil, count)
+	}
+	if ended.getMessage() != "other error" {
+		t.Errorf("ended message = %q, want other error", ended.getMessage())
+	}
+
+	flush, count := buf.flush()
+	if flush == nil || count != 1 {
+		t.Fatalf("final flush should return pending, got flush=%v count=%d", flush != nil, count)
+	}
+	if flush.Stream["k8s_pod_name"] != "other-pod" {
+		t.Errorf("final flush pod = %q, want other-pod", flush.Stream["k8s_pod_name"])
+	}
+
+	if flush, count = buf.flush(); flush != nil || count != 0 {
+		t.Fatalf("second flush should be empty, got flush=%v count=%d", flush != nil, count)
+	}
+}
+
+func TestFormatLine(t *testing.T) {
+	result := newTestLogResult("boom", map[string]string{"k8s_pod_name": "pod-a"})
+	fields := []string{"k8s_pod_name"}
+	printer := &textLogsPrinter{isPrintingTimeValue: false, fieldNames: fields}
+
+	got := printer.formatLine(result)
+	if want := "pod-a boom"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestLogsCommand_DedupeFlag(t *testing.T) {
+	cmd := newCmdLogs()
+
+	flag := cmd.Flags().Lookup("dedupe")
+	if flag == nil {
+		t.Fatal("--dedupe flag not found on logs command")
+	}
+	if flag.DefValue != "false" {
+		t.Errorf("--dedupe default should be false, got %q", flag.DefValue)
+	}
+}

@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"time"
 
+	configv1 "github.com/openshift/api/config/v1"
+	"github.com/openshift/osdctl/pkg/k8s"
 	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -23,8 +25,6 @@ import (
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/openshift/osdctl/pkg/k8s"
 )
 
 const (
@@ -39,8 +39,8 @@ const (
 )
 
 // newCmdPacketCapture implements the packet-capture command to run a packet capture
-func newCmdPacketCapture(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *cobra.Command {
-	ops := newPacketCaptureOptions(streams, flags)
+func newCmdPacketCapture(streams genericclioptions.IOStreams, client *k8s.LazyClient) *cobra.Command {
+	ops := newPacketCaptureOptions(streams, client)
 	packetCaptureCmd := &cobra.Command{
 		Use:               "packet-capture",
 		Aliases:           []string{"pcap"},
@@ -58,7 +58,8 @@ func newCmdPacketCapture(streams genericclioptions.IOStreams, flags *genericclio
 	packetCaptureCmd.Flags().StringVarP(&ops.namespace, "namespace", "n", packetCaptureNamespace, "Namespace to deploy Daemonset")
 	packetCaptureCmd.Flags().StringVarP(&ops.nodeLabelKey, "node-label-key", "", nodeLabelKey, "Node label key")
 	packetCaptureCmd.Flags().StringVarP(&ops.nodeLabelValue, "node-label-value", "", nodeLabelValue, "Node label value")
-	packetCaptureCmd.Flags().BoolVarP(&ops.singlePod, "single-pod", "", singlePod, "toogle deployment as single pod (default: deploy a daemonset)")
+	packetCaptureCmd.Flags().BoolVarP(&ops.singlePod, "single-pod", "", singlePod, "toggle deployment as single pod (default: deploy a daemonset)")
+	packetCaptureCmd.Flags().StringVar(&ops.reason, "reason", "", "The reason for this command, which requires elevation, to be run (usualy an OHSS or PD ticket)")
 
 	ops.startTime = time.Now()
 	return packetCaptureCmd
@@ -66,31 +67,31 @@ func newCmdPacketCapture(streams genericclioptions.IOStreams, flags *genericclio
 
 // packetCaptureOptions defines the struct for running packet-capture command
 type packetCaptureOptions struct {
-	name           string
-	namespace      string
-	nodeLabelKey   string
-	nodeLabelValue string
-	duration       int
-	singlePod      bool
+	name             string
+	namespace        string
+	nodeLabelKey     string
+	nodeLabelValue   string
+	duration         int
+	singlePod        bool
+	captureInterface string
+	reason           string
 
-	flags *genericclioptions.ConfigFlags
 	genericclioptions.IOStreams
-	kubeCli   client.Client
+	kubeCli   *k8s.LazyClient
 	startTime time.Time
 }
 
-func newPacketCaptureOptions(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *packetCaptureOptions {
+func newPacketCaptureOptions(streams genericclioptions.IOStreams, client *k8s.LazyClient) *packetCaptureOptions {
 	return &packetCaptureOptions{
-		flags:     flags,
 		IOStreams: streams,
+		kubeCli:   client,
 	}
 }
 
 func (o *packetCaptureOptions) complete(cmd *cobra.Command, _ []string) error {
-	var err error
-	o.kubeCli, err = k8s.NewClient(o.flags)
-	if err != nil {
-		return err
+	if len(o.reason) > 0 {
+		// This action requires elevation
+		o.kubeCli.Impersonate("backplane-cluster-admin", o.reason, fmt.Sprintf("Elevation required to capture network"))
 	}
 	return nil
 }
@@ -103,6 +104,12 @@ func (o *packetCaptureOptions) run() error {
 }
 
 func (o *packetCaptureOptions) runDaemonSet() error {
+	log.Println("Confirming the interface for capturing")
+	err := setCaptureInterface(o)
+	if err != nil {
+		log.Fatalf("Error setting the interface for capture")
+		return err
+	}
 
 	log.Println("Ensuring Packet Capture Daemonset")
 	ds, err := ensurePacketCaptureDaemonSet(o)
@@ -132,6 +139,13 @@ func (o *packetCaptureOptions) runDaemonSet() error {
 }
 
 func (o *packetCaptureOptions) runPod() error {
+	log.Println("Confirming the interface for capturing")
+	err := setCaptureInterface(o)
+	if err != nil {
+		log.Fatalf("Error setting the interface for capture")
+		return err
+	}
+
 	log.Println("Ensuring Packet Capture Daemonset")
 	capturePod, err := ensurePacketCapturePod(o)
 	if err != nil {
@@ -251,7 +265,7 @@ func desiredPacketCaptureDaemonSet(o *packetCaptureOptions, key types.Namespaced
 			Name:            "init-capture",
 			Image:           packetCaptureImage,
 			ImagePullPolicy: corev1.PullIfNotPresent,
-			Command:         []string{"/bin/bash", "-c", "tcpdump -G " + strconv.Itoa(o.duration) + " -W 1 -w /tmp/capture-output/capture.pcap -i vxlan_sys_4789 -nn -s0; sync"},
+			Command:         []string{"/bin/bash", "-c", "tcpdump -G " + strconv.Itoa(o.duration) + " -W 1 -w /tmp/capture-output/capture.pcap -i " + o.captureInterface + " -nn -s0; sync"},
 			SecurityContext: &corev1.SecurityContext{Privileged: &t},
 			VolumeMounts: []corev1.VolumeMount{
 				{
@@ -283,16 +297,19 @@ func desiredPacketCaptureDaemonSet(o *packetCaptureOptions, key types.Namespaced
 }
 
 func copyFilesFromPod(o *packetCaptureOptions, pod *corev1.Pod) error {
-	os.MkdirAll(outputDir, 0755)
+	err := os.MkdirAll(outputDir, 0750)
+	if err != nil {
+		return err
+	}
 	fileName := fmt.Sprintf("%s-%s.pcap", pod.Spec.NodeName, o.startTime.UTC().Format("20060102T150405"))
-	cmd := exec.Command("oc", "cp", pod.Namespace+"/"+pod.Name+":/tmp/capture-output/capture.pcap", outputDir+"/"+fileName)
+	cmd := exec.Command("oc", "cp", pod.Namespace+"/"+pod.Name+":/tmp/capture-output/capture.pcap", outputDir+"/"+fileName, "--as", "backplane-cluster-admin") //#nosec G204 -- Subprocess launched with a potential tainted input or cmd arguments
 	var stdBuffer bytes.Buffer
 	mw := io.MultiWriter(os.Stdout, &stdBuffer)
 
 	cmd.Stdout = mw
 	cmd.Stderr = mw
 
-	err := cmd.Run()
+	err = cmd.Run()
 
 	if err != nil {
 		log.Println(stdBuffer.String())
@@ -307,9 +324,9 @@ func waitForPacketCaptureDaemonset(o *packetCaptureOptions, ds *appsv1.DaemonSet
 		tmp := &appsv1.DaemonSet{}
 		key := types.NamespacedName{Name: ds.Name, Namespace: ds.Namespace}
 		if err = o.kubeCli.Get(context.TODO(), key, tmp); err == nil {
-			ready := (tmp.Status.NumberReady > 0 &&
+			ready := tmp.Status.NumberReady > 0 &&
 				tmp.Status.NumberAvailable == tmp.Status.NumberReady &&
-				tmp.Status.NumberReady == tmp.Status.DesiredNumberScheduled)
+				tmp.Status.NumberReady == tmp.Status.DesiredNumberScheduled
 			return ready, nil
 		}
 		return false, err
@@ -344,17 +361,17 @@ func copyFilesFromPacketCapturePods(o *packetCaptureOptions) error {
 	}); err != nil {
 		return err
 	}
-	for _, pod := range pods.Items {
+	for i, pod := range pods.Items {
 		if len(pod.Status.ContainerStatuses) == 0 {
 			continue
 		}
-		err := waitForPacketCaptureContainerRunning(o, &pod)
+		err := waitForPacketCaptureContainerRunning(o, &pods.Items[i])
 		if err != nil {
 			log.Fatalf("Error waiting for pods %v", err)
 			return err
 		}
 		log.Printf("Copying files from %s\n", pod.Name)
-		err = copyFilesFromPod(o, &pod)
+		err = copyFilesFromPod(o, &pods.Items[i])
 		if err != nil {
 			log.Fatalf("error copying files %v", err)
 			return err
@@ -400,7 +417,7 @@ func desiredPacketCapturePod(o *packetCaptureOptions, key types.NamespacedName) 
 			Name:            "init-capture",
 			Image:           packetCaptureImage,
 			ImagePullPolicy: corev1.PullIfNotPresent,
-			Command:         []string{"/bin/bash", "-c", "tcpdump -G " + strconv.Itoa(o.duration) + " -W 1 -w /tmp/capture-output/capture.pcap -i vxlan_sys_4789 -nn -s0; sync"},
+			Command:         []string{"/bin/bash", "-c", "tcpdump -G " + strconv.Itoa(o.duration) + " -W 1 -w /tmp/capture-output/capture.pcap -i " + o.captureInterface + " -nn -s0; sync"},
 			SecurityContext: &corev1.SecurityContext{Privileged: &t},
 			VolumeMounts: []corev1.VolumeMount{
 				{
@@ -491,10 +508,28 @@ func waitForPacketCapturePod(o *packetCaptureOptions, capturePod *corev1.Pod) er
 		tmp := &corev1.Pod{}
 		key := types.NamespacedName{Name: capturePod.Name, Namespace: capturePod.Namespace}
 		if err = o.kubeCli.Get(context.TODO(), key, tmp); err == nil {
-			ready := (tmp.Status.Phase == corev1.PodRunning)
+			ready := tmp.Status.Phase == corev1.PodRunning
 			return ready, nil
 		}
 		return false, err
 	})
 	return pollErr
+}
+
+func setCaptureInterface(o *packetCaptureOptions) error {
+	networkConfig := &configv1.Network{}
+	if err := o.kubeCli.Get(context.Background(), client.ObjectKey{Name: "cluster"}, networkConfig); err != nil {
+		return fmt.Errorf("failed to determine the network type: %s", err)
+	}
+
+	switch networkConfig.Spec.NetworkType {
+	case "OVNKubernetes":
+		o.captureInterface = "genev_sys_6081"
+		return nil
+	case "OpenShiftSDN":
+		o.captureInterface = "vxlan_sys_4789"
+		return nil
+	default:
+		return fmt.Errorf("failed to determine network type. Network type %s unknown", networkConfig.Spec.NetworkType)
+	}
 }

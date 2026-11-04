@@ -1,0 +1,38 @@
+version: "2"
+linters:
+  default: none
+  enable:
+    - errcheck
+    - gosec
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unused
+  settings:
+    misspell:
+      extra-words:
+        - typo: openshit
+          correction: OpenShift
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - third_party/
+      - builtin/
+      - examples/
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  new-from-rev: 8d912e328ca7d7a640fc1c39d3fd9e365b6d5bf7
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party/
+      - builtin/
+      - examples/

@@ -1,92 +1,143 @@
 package servicelog
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
+	"slices"
+	"time"
 
-	"github.com/openshift-online/ocm-cli/pkg/arguments"
+	slv1 "github.com/openshift-online/ocm-sdk-go/servicelogs/v1"
+
 	"github.com/openshift-online/ocm-cli/pkg/dump"
-	sdk "github.com/openshift-online/ocm-sdk-go"
-	v1 "github.com/openshift-online/ocm-sdk-go/clustersmgmt/v1"
-	log "github.com/sirupsen/logrus"
+	sl "github.com/openshift/osdctl/pkg/servicelog"
+	ocmutils "github.com/openshift/osdctl/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
-// listCmd represents the list command
-var listCmd = &cobra.Command{
-	Use:           "list [flags] [options] cluster-identifier",
-	Short:         "gets all servicelog messages for a given cluster",
-	Args:          cobra.ArbitraryArgs,
-	SilenceErrors: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) != 1 {
-			cmd.Help()
-			return fmt.Errorf("cluster-identifier was not provided. please provide a cluster id, UUID, or name")
-		}
-
-		// Create an OCM client to talk to the cluster API
-		// the user has to be logged in (e.g. 'ocm login')
-		ocmClient := createConnection()
-		defer func() {
-			if err := ocmClient.Close(); err != nil {
-				log.Errorf("Cannot close the ocmClient (possible memory leak): %q", err)
-			}
-		}()
-
-		// Use the OCM client to retrieve clusters
-		clusters := getClusters(ocmClient, args)
-
-		// send it as logservice and validate the response
-		for _, cluster := range clusters {
-			response := sendRequest(createListRequest(ocmClient, cluster.ExternalID(), serviceLogListAllMessagesFlag))
-
-			err := dump.Pretty(os.Stdout, response.Bytes())
-			if err != nil {
-				cmd.Help()
-				return err
-			}
-		}
-		return nil
-	},
+type listCmdOptions struct {
+	allMessages bool
+	internal    bool
+	clusterID   string
 }
 
-var serviceLogListAllMessagesFlag = false
+func newListCmd() *cobra.Command {
+	opts := &listCmdOptions{}
+	cmd := &cobra.Command{
+		Use:   "list --cluster-id <cluster-identifier> [flags] [options]",
+		Long:  "Get service logs for a given cluster identifier.",
+		Short: "Get service logs for a given cluster identifier.",
+		Example: `  # List SRE-created service logs
+  osdctl servicelog list --cluster-id ${CLUSTER_ID}
 
-const listServiceLogAPIPath = "/api/service_logs/v1/clusters/%s/cluster_logs"
+  # List all service logs including automated
+  osdctl servicelog list --cluster-id ${CLUSTER_ID} --all-messages
 
-func init() {
-	// define required flags
-	listCmd.Flags().BoolVarP(&serviceLogListAllMessagesFlag, "all-messages", "A", serviceLogListAllMessagesFlag, "Toggle if we should see all of the messages or only SRE-P specific ones")
-}
-
-func getClusters(ocmClient *sdk.Connection, clusterIds []string) []*v1.Cluster {
-	for i, id := range clusterIds {
-		clusterIds[i] = generateQuery(id)
+  # List all service logs including internal
+  osdctl servicelog list --cluster-id ${CLUSTER_ID} --all-messages --internal`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return listServiceLogs(opts.clusterID, opts)
+		},
 	}
 
-	clusters, err := applyFilters(ocmClient, []string{strings.Join(clusterIds, " or ")})
+	cmd.Flags().BoolVarP(&opts.allMessages, "all-messages", "A", false, "Toggle if we should see all of the messages or only SRE-P specific ones")
+	cmd.Flags().BoolVarP(&opts.internal, "internal", "i", false, "Toggle if we should see internal messages")
+	cmd.Flags().StringVarP(&opts.clusterID, "cluster-id", "C", "", "Internal Cluster identifier (required)")
+	_ = cmd.MarkFlagRequired("cluster-id")
+
+	return cmd
+}
+
+func listServiceLogs(clusterID string, opts *listCmdOptions) error {
+	ocmClient, err := ocmutils.CreateConnection()
 	if err != nil {
-		log.Fatalf("Error while retrieving cluster(s) from ocm: %[1]s", err)
+		return err
+	}
+	defer ocmClient.Close()
+
+	response, err := sl.FetchServiceLogs(ocmClient, clusterID, opts.allMessages, opts.internal)
+	if err != nil {
+		return err
 	}
 
-	return clusters
+	if err = printServiceLogResponse(response); err != nil {
+		return fmt.Errorf("failed to print service logs: %w", err)
+	}
+
+	return nil
 }
 
-func createListRequest(ocmClient *sdk.Connection, clusterId string, allMessages bool) *sdk.Request {
-	// Create and populate the request:
-	request := ocmClient.Get()
-	err := arguments.ApplyPathArg(request, targetAPIPath)
-	if err != nil {
-		log.Fatalf("Can't parse API path '%s': %v\n", targetAPIPath, err)
+func printServiceLogResponse(response *slv1.ClustersClusterLogsListResponse) error {
+	entryViews := logEntryToView(response.Items().Slice())
+	slices.Reverse(entryViews)
+	view := LogEntryResponseView{
+		Items: entryViews,
+		Kind:  "ClusterLogList",
+		Page:  response.Page(),
+		Size:  response.Size(),
+		Total: response.Total(),
 	}
-	var empty []string
 
-	formatMessage := fmt.Sprintf(`search=cluster_uuid = '%s'`, clusterId)
-	if !allMessages {
-		formatMessage += ` and service_name = 'SREManualAction'`
+	viewBytes, err := json.Marshal(view)
+	if err != nil {
+		return fmt.Errorf("failed to marshal response for output: %w", err)
 	}
-	arguments.ApplyParameterFlag(request, []string{formatMessage})
-	arguments.ApplyHeaderFlag(request, empty)
-	return request
+
+	return dump.Pretty(os.Stdout, viewBytes)
+}
+
+type LogEntryResponseView struct {
+	Items []*LogEntryView `json:"items"`
+	Kind  string          `json:"kind"`
+	Page  int             `json:"page"`
+	Size  int             `json:"size"`
+	Total int             `json:"total"`
+}
+
+type LogEntryView struct {
+	ClusterID     string    `json:"cluster_id"`
+	ClusterUUID   string    `json:"cluster_uuid"`
+	CreatedAt     time.Time `json:"created_at"`
+	CreatedBy     string    `json:"created_by"`
+	Description   string    `json:"description"`
+	DocReferences []string  `json:"doc_references"`
+	EventStreamID string    `json:"event_stream_id"`
+	Href          string    `json:"href"`
+	ID            string    `json:"id"`
+	InternalOnly  bool      `json:"internal_only"`
+	Kind          string    `json:"kind"`
+	LogType       string    `json:"log_type"`
+	ServiceName   string    `json:"service_name"`
+	Severity      string    `json:"severity"`
+	Summary       string    `json:"summary"`
+	Timestamp     time.Time `json:"timestamp"`
+	Username      string    `json:"username"`
+}
+
+func logEntryToView(entries []*slv1.LogEntry) []*LogEntryView {
+	entryViews := make([]*LogEntryView, 0, len(entries))
+	for _, entry := range entries {
+		entryView := &LogEntryView{
+			ClusterID:     entry.ClusterID(),
+			ClusterUUID:   entry.ClusterUUID(),
+			CreatedAt:     entry.CreatedAt(),
+			CreatedBy:     entry.CreatedBy(),
+			Description:   entry.Description(),
+			DocReferences: entry.DocReferences(),
+			EventStreamID: entry.EventStreamID(),
+			Href:          entry.HREF(),
+			ID:            entry.ID(),
+			InternalOnly:  entry.InternalOnly(),
+			Kind:          entry.Kind(),
+			LogType:       string(entry.LogType()),
+			ServiceName:   entry.ServiceName(),
+			Severity:      string(entry.Severity()),
+			Summary:       entry.Summary(),
+			Timestamp:     entry.Timestamp(),
+			Username:      entry.Username(),
+		}
+		entryViews = append(entryViews, entryView)
+	}
+	return entryViews
 }

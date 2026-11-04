@@ -1,0 +1,69 @@
+## osdctl promote dynatrace
+
+Utilities to promote dynatrace
+
+### Synopsis
+
+Promote Dynatrace components or terraform modules.
+
+DYNATRACE COMPONENTS:
+  Components are defined in app-interface under:
+    data/services/osd-operators/cicd/saas/saas-dynatrace/
+
+  Each component maps to a specific path within the dynatrace-config repository.
+  When promoting a component, only changes to that component's path are included
+  in the promotion diff.
+
+  Please run 'osdctl promote dynatrace --list' to check available dynatrace components for promotion & their corresponding paths.
+
+TERRAFORM MODULES:
+  Modules are defined in the dynatrace-config repository under:
+    terraform/modules/
+
+  Promoting a module updates configs in:
+    terraform/redhat-aws/sd-sre/
+
+```
+osdctl promote dynatrace [flags]
+```
+
+### Examples
+
+```
+
+		# List all Dynatrace components available for promotion
+		osdctl promote dynatrace --list
+
+		# Promote a dynatrace component
+		osdctl promote dynatrace --component <component> --gitHash <git-hash>
+
+		# List all dynatrace-config modules available for promotion
+		osdctl promote dynatrace --terraform --list
+
+		# Promote a dynatrace module
+		osdctl promote dynatrace --terraform --module=<module-name>
+```
+
+### Options
+
+```
+      --appInterfaceDir string      Location of app-interface checkout. Falls back to current working directory
+  -c, --component string            Dynatrace component getting promoted (ex: dynatrace-dynakube)
+      --dynatraceConfigDir string   Location of dynatrace-config checkout. Falls back to current working directory
+  -g, --gitHash string              Git hash of the component getting promoted from dynatrace-config repo
+  -h, --help                        help for dynatrace
+  -l, --list                        List all SaaS services/operators
+  -m, --module string               Module to promote
+  -t, --terraform                   Deploy dynatrace-config terraform job
+```
+
+### Options inherited from parent commands
+
+```
+  -S, --skip-version-check   skip checking to see if this is the most recent release
+```
+
+### SEE ALSO
+
+* [osdctl promote](osdctl_promote.md)	 - Utilities to promote services/operators
+

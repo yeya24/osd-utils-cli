@@ -1,17 +1,19 @@
 package cost
 
 import (
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/organizations"
+	"log"
+
+	"github.com/aws/aws-sdk-go-v2/service/organizations"
+	"github.com/aws/aws-sdk-go-v2/service/organizations/types"
 	"github.com/openshift/osdctl/cmd/common"
+	"github.com/openshift/osdctl/internal/utils/globalflags"
 	awsprovider "github.com/openshift/osdctl/pkg/provider/aws"
 	"github.com/spf13/cobra"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"log"
 )
 
 // costCmd represents the cost command
-func NewCmdCost(streams genericclioptions.IOStreams) *cobra.Command {
+func NewCmdCost(streams genericclioptions.IOStreams, globalOpts *globalflags.GlobalOptions) *cobra.Command {
 	opsCost = newCostOptions(streams)
 	costCmd := &cobra.Command{
 		Use:   "cost",
@@ -28,10 +30,11 @@ platforms may be added in the future)`,
 	costCmd.PersistentFlags().StringVarP(&opsCost.region, "aws-region", "g", common.DefaultRegion, "specify AWS region")
 
 	//Add commands
-	costCmd.AddCommand(newCmdGet(streams))
+	costCmd.AddCommand(newCmdGet(streams, globalOpts))
 	costCmd.AddCommand(newCmdReconcile(streams))
 	costCmd.AddCommand(newCmdCreate(streams))
-	costCmd.AddCommand(newCmdList(streams))
+	costCmd.AddCommand(newCmdList(streams, globalOpts))
+	costCmd.AddCommand(newCmdCarbonReport(streams, globalOpts))
 
 	return costCmd
 }
@@ -56,7 +59,7 @@ func newCostOptions(streams genericclioptions.IOStreams) *costOptions {
 	}
 }
 
-//Initiate AWS clients for Organizations and Cost Explorer services using, if given, credentials in flags, else, credentials in the environment
+// Initiate AWS clients for Organizations and Cost Explorer services using, if given, credentials in flags, else, credentials in the environment
 func (opsCost *costOptions) initAWSClients() (awsprovider.Client, error) {
 	//Initialize AWS clients
 	var (
@@ -66,7 +69,7 @@ func (opsCost *costOptions) initAWSClients() (awsprovider.Client, error) {
 	if opsCost.accessKeyID == "" && opsCost.secretAccessKey == "" {
 		awsClient, err = awsprovider.NewAwsClient(opsCost.profile, opsCost.region, opsCost.configFile)
 	} else {
-		awsClient, err = awsprovider.NewAwsClientWithInput(&awsprovider.AwsClientInput{
+		awsClient, err = awsprovider.NewAwsClientWithInput(&awsprovider.ClientInput{
 			AccessKeyID:     opsCost.accessKeyID,
 			SecretAccessKey: opsCost.secretAccessKey,
 			Region:          opsCost.region,
@@ -80,10 +83,10 @@ func (opsCost *costOptions) initAWSClients() (awsprovider.Client, error) {
 	return awsClient, err
 }
 
-//Gets information regarding Organizational Unit
-func getOU(org awsprovider.Client, OUid string) *organizations.OrganizationalUnit {
+// Gets information regarding Organizational Unit
+func getOU(org awsprovider.Client, OUid string) *types.OrganizationalUnit {
 	result, err := org.DescribeOrganizationalUnit(&organizations.DescribeOrganizationalUnitInput{
-		OrganizationalUnitId: aws.String(OUid),
+		OrganizationalUnitId: &OUid,
 	})
 	if err != nil {
 		log.Fatalln("Cannot get Organizational Unit:", err)

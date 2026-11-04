@@ -1,0 +1,5395 @@
+# osdctl Commands
+
+## Command Overview
+
+- `aao` - AWS Account Operator Debugging Utilities
+  - `pool` - Get the status of the AWS Account Operator AccountPool
+- `account` - AWS Account related utilities
+  - `aws-creds` - Diagnose and manage AWS IAM credentials for a cluster
+    - `rotate -C <cluster-id> --reason <reason> [flags]` - Rotate AWS IAM credentials for a cluster
+    - `snapshot -C <cluster-id> --reason <reason> [flags]` - Show a read-only credential status report for a cluster
+  - `clean-velero-snapshots` - Cleans up S3 buckets whose name start with managed-velero
+  - `cli` - Generate temporary AWS CLI credentials on demand
+  - `console` - Generate an AWS console URL on the fly
+  - `generate-secret <IAM User name>` - Generates IAM credentials secret
+  - `get` - Get resources
+    - `account` - Get AWS Account CR
+    - `account-claim` - Get AWS Account Claim CR
+    - `aws-account` - Get AWS Account ID
+    - `legal-entity` - Get AWS Account Legal Entity
+    - `secrets` - Get AWS Account CR related secrets
+  - `list` - List resources
+    - `account` - List AWS Account CR
+    - `account-claim` - List AWS Account Claim CR
+  - `mgmt` - AWS Account Management
+    - `assign` - Assign account to user
+    - `iam` - Creates an IAM user in a given AWS account and prints out the credentials
+    - `list` - List out accounts for username
+    - `unassign` - Unassign account to user
+  - `reset <account name>` - Reset AWS Account CR
+  - `servicequotas` - Interact with AWS service-quotas
+    - `describe` - Describe AWS service-quotas
+  - `set <account name>` - Set AWS Account CR status
+  - `verify-secrets [<account name>]` - Verify AWS Account CR IAM User credentials
+- `alert` - List alerts
+  - `list --cluster-id <cluster-id> --level [warning, critical, firing, pending, all]` - List all alerts or based on severity
+  - `silence` - add, expire and list silence associated with alerts
+    - `add --cluster-id <cluster-identifier> [--all --duration --comment | --alertname --duration --comment]` - Add new silence for alert
+    - `expire [--cluster-id <cluster-identifier>] [--all | --silence-id <silence-id>]` - Expire Silence for alert
+    - `list --cluster-id <cluster-identifier>` - List all silences
+    - `org <org-id> [--all --duration --comment | --alertname --duration --comment]` - Add new silence for alert for org
+- `ci` - Commands for managing CI pipelines and jobs
+  - `retrigger-pipeline` - Retrigger a failed SAPM Tekton PipelineRun on appsrep09ue1
+- `cloudtrail` - AWS CloudTrail related utilities
+  - `errors` - Prints CloudTrail error events (permission/IAM issues) to console.
+  - `permission-denied-events` - Prints cloudtrail permission-denied events to console.
+  - `write-events` - Prints cloudtrail write events to console with advanced filtering options
+- `cluster` - Provides information for a specified cluster
+  - `break-glass --cluster-id <cluster-identifier>` - Emergency access to a cluster
+    - `cleanup --cluster-id <cluster-identifier>` - Drop emergency access to a cluster
+  - `cad` - Provides commands to run CAD tasks
+    - `run` - Run a manual investigation on the CAD cluster
+  - `change-ebs-volume-type` - Change EBS volume type for control plane and/or infra nodes by replacing machines
+  - `check-banned-user --cluster-id <cluster-identifier>` - Checks if the cluster owner is a banned user.
+  - `context --cluster-id <cluster-identifier>` - Shows the context of a specified cluster
+  - `cpd` - Runs diagnostic for a Cluster Provisioning Delay (CPD)
+  - `detach-stuck-volume --cluster-id <cluster-identifier>` - Detach openshift-monitoring namespace's volume from a cluster forcefully
+  - `diff <before.yaml> <after.yaml>` - Compare two cluster snapshots to identify changes
+  - `etcd-health-check --cluster-id <cluster-id> --reason <reason for escalation>` - Checks the etcd components and member health
+  - `etcd-member-replace --cluster-id <cluster-identifier>` - Replaces an unhealthy etcd node
+  - `from-infra-id` - Get cluster ID and external ID from a given infrastructure ID commonly used by Splunk
+  - `get-env-vars --cluster-id <cluster-identifier>` - Print a cluster's ID/management namespaces, optionally as env variables
+  - `health` - Describes health of cluster nodes and provides other cluster vitals.
+  - `hypershift-info` - Pull information about AWS objects from the cluster, the management cluster and the privatelink cluster
+  - `imdsv2` - Migrate cluster nodes to enforce IMDSv2 (Instance Metadata Service v2)
+  - `logging-check --cluster-id <cluster-identifier>` - Shows the logging support status of a specified cluster
+  - `orgId --cluster-id <cluster-identifier` - Get the OCM org ID for a given cluster
+  - `owner` - List the clusters owned by the user (can be specified to any user, not only yourself)
+  - `pull-secret` - Diagnose and manage cluster pull secrets
+    - `audit` - Audit pull secret status for all clusters owned by an account
+    - `update` - Refresh a cluster's pull secret from the cluster owner's OCM account
+    - `validate` - Extended checks to confirm pull-secret data is synced with current OCM data
+  - `reports` - Manage cluster reports in backplane-api
+    - `create` - Create a new cluster report in backplane-api
+    - `get` - Get a specific cluster report from backplane-api
+    - `list` - List cluster reports from backplane-api
+  - `resize` - resize control-plane/infra nodes
+    - `control-plane` - Resize an OSD/ROSA cluster's control plane nodes
+    - `infra` - Resize an OSD/ROSA cluster's infra nodes
+    - `request-serving-nodes` - Resize a ROSA HCP cluster's request-serving nodes
+  - `resync` - Force a resync of a cluster from Hive
+  - `snapshot` - Capture a point-in-time snapshot of cluster state
+  - `sre-operators` - SRE operator related utilities
+    - `describe` - Describe SRE operators
+    - `list` - List the current and latest version of SRE operators
+  - `ssh` - utilities for accessing cluster via ssh
+    - `key --reason $reason [--cluster-id $CLUSTER_ID]` - Retrieve a cluster's SSH key from Hive
+  - `support` - Cluster Support
+    - `delete --cluster-id <cluster-identifier>` - Delete specified limited support reason for a given cluster
+    - `post --cluster-id <cluster-identifier>` - Send limited support reason to a given cluster
+    - `status --cluster-id <cluster-identifier>` - Shows the support status of a specified cluster
+  - `transfer-owner` - Transfer cluster ownership to a new user (to be done by Region Lead)
+  - `validate-pull-secret --cluster-id <cluster-identifier>` - Checks if the pull secret email matches the owner email
+  - `verify-dns --cluster-id <cluster-id>` - Verify DNS resolution for HCP cluster public endpoints
+- `cost` - Cost Management related utilities
+  - `carbon-report` - Generate carbon emissions report csv to stdout for a given AWS Account and Usage Period
+  - `create` - Create a cost category for the given OU
+  - `get` - Get total cost of a given OU
+  - `list` - List the cost of each Account/OU under given OU
+  - `reconcile` - Checks if there's a cost category for every OU. If an OU is missing a cost category, creates the cost category
+- `env [flags] [env-alias]` - Create an environment to interact with a cluster
+- `evidence` - Evidence collection utilities for feature testing
+  - `collect` - Collect evidence from cluster and AWS for feature testing
+- `hcp` - 
+  - `backup` - Manage Velero backups for HCP clusters
+    - `create --cluster-id <cluster-id> --reason <reason>` - Trigger a Velero backup for an HCP cluster
+    - `discover --cluster-id <cluster-id>` - Discover HCP backups from the disaster recovery S3 bucket
+  - `force-upgrade` - Schedule forced control plane upgrade for HCP clusters (Requires ForceUpgrader permissions)
+  - `get-cp-autoscaling-status` - Get control plane autoscaling status for hosted clusters on a management cluster
+  - `must-gather --cluster-id <cluster-identifier>` - Create a must-gather for an HCP cluster (and optionally its management/service clusters)
+  - `restore` - Prepare and restore HCP clusters during disaster recovery
+    - `create --cluster-id <cluster-id> --backup-name <backup-name> --reason <reason> [--target-mc <management-cluster>] [--timeout <duration>]` - Create and monitor a Velero restore for an HCP backup
+    - `manifestwork` - Compare and relocate HCP ManifestWorks
+      - `compare --cluster-id <cluster-id> --replacement-mc <management-cluster> --reason <reason> [--source-mc <management-cluster>]` - Compare HCP ManifestWorks between management clusters
+      - `move` - Move HCP Velero and cluster resources in phases
+        - `cluster-resources --cluster-id <cluster-id> --replacement-mc <management-cluster> --reason <reason> [--source-mc <management-cluster>]` - Move the namespace, HostedCluster, and NodePool ManifestWorks
+        - `velero-resources --cluster-id <cluster-id> --replacement-mc <management-cluster> --reason <reason> [--source-mc <management-cluster>]` - Move the Velero resource ManifestWorks
+    - `migrate-storage --cluster-id <cluster-id> --replacement-mc <management-cluster> --reason <reason>` - Migrate HCP snapshot storage to a replacement management cluster
+    - `reassign --cluster-id <cluster-id> --replacement-mc <management-cluster>` - Reassign an HCP to a replacement management cluster in OCM
+    - `reimport --cluster-id <cluster-id> --replacement-mc <management-cluster> --reason <reason> [--timeout <duration>]` - Move recovered HCP add-on work to a replacement management cluster
+    - `release-dns --cluster-id <cluster-id>` - Release central DNS records for an HCP cluster
+    - `update-trust-policy --cluster-id <cluster-id> --replacement-mc <management-cluster>` - Allow a replacement management cluster to access HCP backups
+  - `status` - Show HCP cluster health status from OCM live resources
+  - `transition-to-eus` - Transition ROSA HCP clusters from stable to EUS channel (Even Y-Stream EOL handling)
+- `hive` - hive related utilities
+  - `clusterdeployment` - cluster deployment related utilities
+    - `list` - List cluster deployment crs
+    - `listresources` - List all resources on a hive cluster related to a given cluster
+  - `clustersync-failures [flags]` - List clustersync failures
+- `iampermissions` - STS/WIF utilities
+  - `diff` - Diff IAM permissions for cluster operators between two versions
+  - `get` - Get OCP CredentialsRequests
+  - `save` - Save iam permissions for use in mcc
+- `jira` - Provides a set of commands for interacting with Jira
+  - `create-handover-announcement` - Create a new Handover announcement for SREPHOA Project
+  - `quick-task <title>` - creates a new ticket with the given name
+- `jumphost` - 
+  - `create` - Create a jumphost for emergency SSH access to a cluster's VMs
+  - `delete` - Delete a jumphost created by `osdctl jumphost create`
+- `mc` - 
+  - `list` - List ROSA HCP Management Clusters
+- `network` - network related utilities
+  - `packet-capture` - Start packet capture
+  - `verify-egress` - Verify an AWS OSD/ROSA cluster can reach all required external URLs necessary for full support.
+- `org` - Provides information for a specified organization
+  - `aws-accounts` - get organization AWS Accounts
+  - `clusters` - get all active organization clusters
+  - `context orgId` - fetches information about the given organization
+  - `current` - gets current organization
+  - `customers` - get paying/non-paying organizations
+  - `describe` - describe organization
+  - `get` - get organization by users
+  - `labels` - get organization labels
+  - `users` - get organization users
+- `promote` - Utilities to promote services/operators
+  - `block` - Add a blocked version to a component in app.yaml
+  - `dynatrace` - Utilities to promote dynatrace
+  - `managedscripts` - Promote https://github.com/openshift/managed-scripts
+  - `rhobs` - Promote RHOBS configuration to production
+  - `saas` - Utilities to promote SaaS services/operators
+- `rhobs` - RHOBS.next related utilities
+  - `alerts` - List or silence RHOBS alerts
+    - `get` - List alerts from RHOBS for a given cluster
+    - `prom-rules` - The Prometheus rules (alerts & recording rules) defined on the RHOBS cell
+      - `get` - List the Prometheus rules defined on the RHOBS cell
+    - `silences` - The alerts silences defined at RHOBS cell level
+      - `create selector` - Create a silence at RHOBS cell level
+      - `delete [silence-id]` - Expire the given silence from the RHOBS cell
+      - `get` - List RHOBS cell silences
+  - `cell` - Get the RHOBS cell for a given cluster
+  - `hcp-dashboard [dashboard-name]` - Get the HCP dashboard URL for a given HCP cluster
+  - `logs [pod]` - Fetch logs from RHOBS for a given cluster or cell
+  - `mcp` - RHOBS MCP server for AI agent integration
+    - `config` - Print MCP client configuration JSON
+    - `server` - Start the RHOBS MCP server
+  - `metrics [PromQL-expression]` - Fetch metrics from RHOBS for a given cluster
+- `servicelog` - OCM/Hive Service log
+  - `list --cluster-id <cluster-identifier> [flags] [options]` - Get service logs for a given cluster identifier.
+  - `post --cluster-id <cluster-identifier>` - Post a service log to a cluster or list of clusters
+- `setup` - Setup the configuration
+- `swarm` - Provides a set of commands for swarming activity
+  - `secondary` - List unassigned JIRA issues based on criteria
+- `upgrade` - Upgrade osdctl
+- `version` - Display the version
+
+## Command Details
+
+### osdctl
+
+CLI tool to provide OSD related utilities
+
+```
+osdctl [flags]
+```
+
+#### Flags
+
+```
+  -h, --help                 help for osdctl
+  -S, --skip-version-check   skip checking to see if this is the most recent release
+```
+
+### osdctl aao
+
+AWS Account Operator Debugging Utilities
+
+```
+osdctl aao [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for aao
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl aao pool
+
+Get the status of the AWS Account Operator AccountPool
+
+```
+osdctl aao pool [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for pool
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account
+
+AWS Account related utilities
+
+```
+osdctl account [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for account
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account aws-creds
+
+Subcommands for inspecting and rotating AWS IAM credentials, Hive secrets, and CredentialRequests.
+
+```
+osdctl account aws-creds [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for aws-creds
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account aws-creds rotate
+
+Rotates AWS IAM credentials for osdManagedAdmin and/or osdCcsAdmin users.
+Runs a diagnostic snapshot first, then performs the rotation with
+interactive confirmation.
+
+Use --refresh-secrets to only delete and recreate CredentialRequest secrets
+without rotating AWS keys or modifying Hive secrets. This is useful when
+CCO needs to re-provision secrets with existing credentials.
+
+AWS credentials are obtained via backplane by default, falling back to the
+default AWS credential chain (env vars, ~/.aws/config). Use --aws-profile
+to specify a named profile, or --aws-use-env to skip backplane and use
+environment credentials directly (e.g. after rh-aws-saml-login).
+
+Pre-flight checks (IAM permissions, secret existence) block rotation by
+default. Use --force to allow proceeding past errors with explicit YES
+confirmation — only when you are certain the errors are benign.
+
+```
+osdctl account aws-creds rotate -C <cluster-id> --reason <reason> [flags]
+```
+
+#### Flags
+
+```
+      --admin-username string            Override the osdManagedAdmin IAM username. Only needed if auto-detection fails (e.g. custom or legacy username)
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -p, --aws-profile string               AWS profile for role chaining. If omitted, tries backplane then falls back to default AWS credential chain
+      --aws-use-env                      Use AWS credentials from environment variables (e.g. after rh-aws-saml-login), skipping backplane
+      --ccs-admin                        Rotate osdCcsAdmin credentials (CCS clusters only)
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                (Required) OCM internal or external cluster ID
+      --context string                   The name of the kubeconfig context to use
+      --dry-run                          Preview rotation actions without making changes
+      --force                            Allow proceeding past pre-flight errors with YES confirmation. Use only when certain the errors are benign (e.g., known SCP restrictions that won't affect rotation)
+  -h, --help                             help for rotate
+      --hive-ocm-url string              OCM environment for Hive operations (aliases: production, staging, integration)
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -l, --log-level string                 Log level: debug, info, warn, error (default "info")
+      --managed-admin                    Rotate osdManagedAdmin credentials
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -r, --reason string                    (Required) Elevation reason, usually a Jira ticket ID
+      --refresh-secrets                  Only delete and recreate CredentialRequest secrets (no key rotation)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account aws-creds snapshot
+
+Produces a diagnostic report of AWS IAM credentials including:
+  - IAM access keys and which Hive secrets reference them
+  - CredentialRequest secrets and whether they need refresh
+  - IAM permission simulation (SCP/policy restriction detection)
+
+Use --cr-secrets to show only the CredentialRequest secrets table.
+
+This is a read-only operation — no credentials are modified.
+
+AWS credentials are obtained via backplane by default, falling back to the
+default AWS credential chain (env vars, ~/.aws/config). Use --aws-profile
+to specify a named profile, or --aws-use-env to skip backplane and use
+environment credentials directly (e.g. after rh-aws-saml-login).
+
+```
+osdctl account aws-creds snapshot -C <cluster-id> --reason <reason> [flags]
+```
+
+#### Flags
+
+```
+      --admin-username string            Override the osdManagedAdmin IAM username. Only needed if auto-detection fails (e.g. custom or legacy username)
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -p, --aws-profile string               AWS profile for role chaining. If omitted, tries backplane then falls back to default AWS credential chain
+      --aws-use-env                      Use AWS credentials from environment variables (e.g. after rh-aws-saml-login), skipping backplane
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                (Required) OCM internal or external cluster ID
+      --context string                   The name of the kubeconfig context to use
+      --cr-secrets                       Only show CredentialRequest secrets status
+  -h, --help                             help for snapshot
+      --hive-ocm-url string              OCM environment for Hive operations (aliases: production, staging, integration)
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -l, --log-level string                 Log level: debug, info, warn, error (default "info")
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -r, --reason string                    (Required) Elevation reason, usually a Jira ticket ID
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account clean-velero-snapshots
+
+Cleans up S3 buckets whose name start with managed-velero
+
+```
+osdctl account clean-velero-snapshots [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -a, --aws-access-key-id string         AWS Access Key ID
+  -c, --aws-config string                specify AWS config file path
+  -p, --aws-profile string               specify AWS profile
+  -r, --aws-region string                specify AWS region (default "us-east-1")
+  -x, --aws-secret-access-key string     AWS Secret Access Key
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for clean-velero-snapshots
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account cli
+
+Generate temporary AWS CLI credentials on demand
+
+```
+osdctl account cli [flags]
+```
+
+#### Flags
+
+```
+  -i, --accountId string                 AWS Account ID
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for cli
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Output type (env, json) (default "env")
+  -p, --profile string                   AWS Profile
+  -r, --region string                    Region
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --verbose                          Verbose output
+```
+
+### osdctl account console
+
+Generate an AWS console URL on the fly
+
+```
+osdctl account console [flags]
+```
+
+#### Flags
+
+```
+  -i, --accountId string                 AWS Account ID
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -d, --duration int32                   The duration of the console session. Default value is 3600 seconds(1 hour) (default 3600)
+  -h, --help                             help for console
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --launch                           Launch web browser directly
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --profile string                   AWS Profile
+  -r, --region string                    Region
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --verbose                          Verbose output
+```
+
+### osdctl account generate-secret
+
+When logged into a hive shard, this generates a new IAM credential secret for a given IAM user
+
+```
+osdctl account generate-secret <IAM User name> [flags]
+```
+
+#### Flags
+
+```
+  -i, --account-id string                AWS Account ID
+  -a, --account-name string              AWS Account CR name
+      --account-namespace string         The namespace to keep AWS accounts. The default value is aws-account-operator. (default "aws-account-operator")
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -p, --aws-profile string               specify AWS profile
+      --ccs                              Only generate specific secret for osdCcsAdmin. Requires Account CR name
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for generate-secret
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --quiet                            Suppress logged output
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+      --secret-name string               Specify name of the generated secret
+      --secret-namespace string          Specify namespace of the generated secret (default "aws-account-operator")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account get
+
+Get resources
+
+```
+osdctl account get [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for get
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account get account
+
+Get AWS Account CR
+
+```
+osdctl account get account [flags]
+```
+
+#### Flags
+
+```
+  -c, --account-claim string             Account Claim CR name
+  -n, --account-claim-ns string          Account Claim CR namespace
+  -i, --account-id string                AWS account ID
+      --account-namespace string         The namespace to keep AWS accounts. The default value is aws-account-operator. (default "aws-account-operator")
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for account
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --show-managed-fields              If true, keep the managedFields when printing objects in JSON or YAML format.
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --template string                  Template string or path to template file to use when --output=jsonpath, --output=jsonpath-file.
+```
+
+### osdctl account get account-claim
+
+Get AWS Account Claim CR
+
+```
+osdctl account get account-claim [flags]
+```
+
+#### Flags
+
+```
+  -a, --account string                   Account CR Name
+  -i, --account-id string                AWS account ID
+      --account-namespace string         The namespace to keep AWS accounts. The default value is aws-account-operator. (default "aws-account-operator")
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for account-claim
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --show-managed-fields              If true, keep the managedFields when printing objects in JSON or YAML format.
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --template string                  Template string or path to template file to use when --output=jsonpath, --output=jsonpath-file.
+```
+
+### osdctl account get aws-account
+
+Get AWS Account ID
+
+```
+osdctl account get aws-account [flags]
+```
+
+#### Flags
+
+```
+  -a, --account string                   Account CR Name
+  -c, --account-claim string             Account Claim CR Name
+  -n, --account-claim-ns string          Account Claim CR Namespace
+      --account-namespace string         The namespace to keep AWS accounts. The default value is aws-account-operator. (default "aws-account-operator")
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for aws-account
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account get legal-entity
+
+Get AWS Account Legal Entity
+
+```
+osdctl account get legal-entity [flags]
+```
+
+#### Flags
+
+```
+  -i, --account-id string                AWS account ID
+      --account-namespace string         The namespace to keep AWS accounts. The default value is aws-account-operator. (default "aws-account-operator")
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for legal-entity
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account get secrets
+
+Get AWS Account CR related secrets
+
+```
+osdctl account get secrets [flags]
+```
+
+#### Flags
+
+```
+  -i, --account-id string                AWS account ID
+      --account-namespace string         The namespace to keep AWS accounts. The default value is aws-account-operator. (default "aws-account-operator")
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for secrets
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account list
+
+List resources
+
+```
+osdctl account list [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for list
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account list account
+
+List AWS Account CR
+
+```
+osdctl account list account [flags]
+```
+
+#### Flags
+
+```
+      --account-namespace string         The namespace to keep AWS accounts. The default value is aws-account-operator. (default "aws-account-operator")
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -c, --claim string                     Filter account CRs by claimed or not. Supported values are true, false. Otherwise it lists all accounts
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for account
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -r, --reuse string                     Filter account CRs by reused or not. Supported values are true, false. Otherwise it lists all accounts
+  -s, --server string                    The address and port of the Kubernetes API server
+      --show-managed-fields              If true, keep the managedFields when printing objects in JSON or YAML format.
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --state string                     Account cr state. The default value is all to display all the crs (default "all")
+      --template string                  Template string or path to template file to use when --output=jsonpath, --output=jsonpath-file.
+```
+
+### osdctl account list account-claim
+
+List AWS Account Claim CR
+
+```
+osdctl account list account-claim [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for account-claim
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --state string                     Account cr state. If not specified, it will list all crs by default.
+```
+
+### osdctl account mgmt
+
+AWS Account Management
+
+```
+osdctl account mgmt [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for mgmt
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account mgmt assign
+
+Assign account to user
+
+```
+osdctl account mgmt assign [flags]
+```
+
+#### Flags
+
+```
+  -i, --account-id string                (optional) Specific AWS account ID to assign
+      --account-name string              (optional) Name for a newly created account; recommended pattern: <scope>-<environment>-<purpose>[-<region>][-<sequence>]
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for assign
+  -I, --iam-user                         (optional) Create an AWS IAM user and Access Key
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --payer-account string             Payer account type (default "osd-staging-1")
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --show-managed-fields              If true, keep the managedFields when printing objects in JSON or YAML format.
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --template string                  Template string or path to template file to use when --output=jsonpath, --output=jsonpath-file.
+  -u, --username string                  LDAP username
+```
+
+### osdctl account mgmt iam
+
+Creates an IAM user in a given AWS account and prints out the credentials
+
+```
+osdctl account mgmt iam [flags]
+```
+
+#### Flags
+
+```
+  -i, --accountId string                 AWS account ID to run this against
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for iam
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --profile string                   AWS Profile
+  -r, --region string                    AWS Region
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -R, --rotate                           Rotate an IAM user's credentials and print the output
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+  -u, --user string                      Kerberos username to run this for
+```
+
+### osdctl account mgmt list
+
+List out accounts for username
+
+```
+osdctl account mgmt list [flags]
+```
+
+#### Flags
+
+```
+  -i, --account-id string                Account ID
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for list
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --payer-account string             Payer account type
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --show-managed-fields              If true, keep the managedFields when printing objects in JSON or YAML format.
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --template string                  Template string or path to template file to use when --output=jsonpath, --output=jsonpath-file.
+  -u, --user string                      LDAP username
+```
+
+### osdctl account mgmt unassign
+
+Unassign account to user
+
+```
+osdctl account mgmt unassign [flags]
+```
+
+#### Flags
+
+```
+  -i, --account-id string                Account ID
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for unassign
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --payer-account string             Payer account type
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --show-managed-fields              If true, keep the managedFields when printing objects in JSON or YAML format.
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --template string                  Template string or path to template file to use when --output=jsonpath, --output=jsonpath-file.
+  -u, --username string                  LDAP username
+```
+
+### osdctl account reset
+
+Reset AWS Account CR
+
+```
+osdctl account reset <account name> [flags]
+```
+
+#### Flags
+
+```
+      --account-namespace string         The namespace to keep AWS accounts. The default value is aws-account-operator. (default "aws-account-operator")
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for reset
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+      --reset-legalentity                This will wipe the legalEntity, claimLink and reused fields, allowing accounts to be used for different Legal Entities.
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account servicequotas
+
+Interact with AWS service-quotas
+
+```
+osdctl account servicequotas [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for servicequotas
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl account servicequotas describe
+
+Describe AWS service-quotas
+
+```
+osdctl account servicequotas describe [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --clusterID string                 Cluster ID
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for describe
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --profile string                   AWS Profile
+  -q, --quota-code string                Query for QuotaCode (default "L-1216C47A")
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --service-code string              Query for ServiceCode (default "ec2")
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --verbose                          Verbose output
+```
+
+### osdctl account set
+
+Set AWS Account CR status
+
+```
+osdctl account set <account name> [flags]
+```
+
+#### Flags
+
+```
+  -a, --account-namespace string         The namespace to keep AWS accounts. The default value is aws-account-operator. (default "aws-account-operator")
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for set
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --patch string                     the raw payload used to patch the account status
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -r, --rotate-credentials               set status.rotateCredentials in the specified account
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --state string                     set status.state field in the specified account
+  -t, --type string                      The type of patch being provided; one of [merge json]. The strategic patch is not supported. (default "merge")
+```
+
+### osdctl account verify-secrets
+
+Verify AWS Account CR IAM User credentials
+
+```
+osdctl account verify-secrets [<account name>] [flags]
+```
+
+#### Flags
+
+```
+      --account-namespace string         The namespace to keep AWS accounts. The default value is aws-account-operator. (default "aws-account-operator")
+  -A, --all                              Verify all Account CRs
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for verify-secrets
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --verbose                          Verbose output
+```
+
+### osdctl alert
+
+List alerts
+
+```
+osdctl alert [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for alert
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl alert list
+
+Checks the alerts for the cluster and print the list based on severity
+
+```
+osdctl alert list --cluster-id <cluster-id> --level [warning, critical, firing, pending, all] [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide the internal ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for list
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -l, --level string                     Alert level [warning, critical, firing, pending, all] (default "all")
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command, which requires elevation, to be run (usualy an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl alert silence
+
+add, expire and list silence associated with alerts
+
+```
+osdctl alert silence [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for silence
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl alert silence add
+
+Add a new silence for a specific alert or for all alerts, including a comment and duration.
+
+```
+osdctl alert silence add --cluster-id <cluster-identifier> [--all --duration --comment | --alertname --duration --comment] [flags]
+```
+
+#### Flags
+
+```
+      --alertname strings                alertname (comma-separated)
+  -a, --all                              Adding silences for all alert
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide the internal ID of the cluster
+  -c, --comment string                   add comment about silence (default "Adding silence using the osdctl alert command")
+      --context string                   The name of the kubeconfig context to use
+  -d, --duration string                  Adding duration for silence as 15 days (default "15d")
+  -h, --help                             help for add
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command, which requires elevation, to be run (usualy an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl alert silence expire
+
+Expire all silences, or expire a specific silence by its silence ID.
+
+```
+osdctl alert silence expire [--cluster-id <cluster-identifier>] [--all | --silence-id <silence-id>] [flags]
+```
+
+#### Flags
+
+```
+  -a, --all                              clear all silences
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide the internal ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for expire
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command, which requires elevation, to be run (usualy an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --silence-id strings               silence id (comma-separated)
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl alert silence list
+
+print the list of silences
+
+```
+osdctl alert silence list --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide the internal ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for list
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command, which requires elevation, to be run (usualy an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl alert silence org
+
+Add a new silence for specific alerts or all alerts with a comment and duration for an organization. OHSS required for org-wide silence.
+
+```
+osdctl alert silence org <org-id> [--all --duration --comment | --alertname --duration --comment] [flags]
+```
+
+#### Flags
+
+```
+      --alertname strings                alertname (comma-separated)
+  -a, --all                              add silences for all alert
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -c, --comment string                   add comment about silence. OHSS required for org-wide silence
+      --context string                   The name of the kubeconfig context to use
+  -d, --duration string                  add duration for silence (default "15d")
+  -h, --help                             help for org
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl ci
+
+Commands for managing CI pipelines and jobs
+
+```
+osdctl ci [flags]
+```
+
+#### Flags
+
+```
+  -h, --help                 help for ci
+  -S, --skip-version-check   skip checking to see if this is the most recent release
+```
+
+### osdctl ci retrigger-pipeline
+
+Retrigger a failed SAPM Tekton PipelineRun on appsrep09ue1.
+
+Use this when a PipelineRun fails for infrastructure reasons unrelated to the operator code
+or e2e tests (e.g. network blip, transient API failure). A successful retrigger publishes
+to the SAPM success channel, unblocking downstream promotions.
+
+To find the failed PipelineRun name:
+  ocm backplane login --multi 29nmp5rhf8rgclg4a02lju4eld79js9e
+  kubectl get pipelineruns -n <operator>-pipelines --sort-by=.metadata.creationTimestamp
+
+Common namespaces: certman-operator-pipelines, cloud-ingress-operator-pipelines,
+  rbac-permissions-operator-pipelines, ocm-agent-operator-pipelines
+
+```
+osdctl ci retrigger-pipeline [flags]
+```
+
+#### Flags
+
+```
+  -h, --help                 help for retrigger-pipeline
+  -n, --namespace string     Namespace containing the failed PipelineRun (e.g. certman-operator-pipelines)
+      --reason string        Backplane elevation reason (Jira key, PD URL, or ITN key)
+  -r, --run string           Name of the failed PipelineRun
+  -S, --skip-version-check   skip checking to see if this is the most recent release
+```
+
+### osdctl cloudtrail
+
+AWS CloudTrail related utilities
+
+```
+osdctl cloudtrail [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for cloudtrail
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cloudtrail errors
+
+Surfaces permission and IAM-related errors from AWS CloudTrail.
+
+By default, matches these error patterns:
+  - AccessDenied
+  - UnauthorizedOperation / Client.UnauthorizedOperation
+  - Forbidden
+  - InvalidClientTokenId
+  - AuthFailure
+  - ExpiredToken
+  - SignatureDoesNotMatch
+
+Use --error-types to filter for specific error patterns.
+
+```
+osdctl cloudtrail errors [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID
+      --context string                   The name of the kubeconfig context to use
+      --error-types strings              Comma-separated list of error patterns to match (default: all common permission errors)
+  -h, --help                             help for errors
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --json                             Output results as JSON
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -r, --raw-event                        Print raw CloudTrail event JSON
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --since string                     Time window to search (e.g., 30m, 1h, 24h). Valid units: ns, us, ms, s, m, h. (default "1h")
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+  -u, --url                              Include console URL links for each event
+```
+
+### osdctl cloudtrail permission-denied-events
+
+Prints cloudtrail permission-denied events to console.
+
+```
+osdctl cloudtrail permission-denied-events [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for permission-denied-events
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -r, --raw-event                        Prints the cloudtrail events to the console in raw json format
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --since string                     Specifies that only events that occur within the specified time are returned.Defaults to 5m. Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h". (default "5m")
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+  -u, --url                              Generates Url link to cloud console cloudtrail event
+```
+
+### osdctl cloudtrail write-events
+
+
+	Lists AWS CloudTrail write events for a specific OpenShift/ROSA cluster with advanced 
+	filtering capabilities to help investigate cluster-related activities.
+
+	The command automatically authenticates with OpenShift Cluster Manager (OCM) and assumes 
+	the appropriate AWS role for the target cluster to access CloudTrail logs.
+
+	By default, the command filters out system and service account events using patterns 
+	from the osdctl configuration file. 
+
+```
+osdctl cloudtrail write-events [flags]
+```
+
+#### Flags
+
+```
+      --after string                     Specifies all events that occur after the specified time. Format "YY-MM-DD,hh:mm:ss".
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cache                            Enable/Disable cache file for write-events (default true)
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID
+      --context string                   The name of the kubeconfig context to use
+  -E, --exclude strings                  Filter events by exclusion. (i.e. "-E username=, -E event=, -E resource-name=, -E resource-type=, -E arn=")
+  -h, --help                             help for write-events
+  -I, --include strings                  Filter events by inclusion. (i.e. "-I username=, -I event=, -I resource-name=, -I resource-type=, -I arn=")
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -l, --log-level string                 Options: "info", "debug", "warn", "error". (default=info) (default "info")
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --print-fields strings             Prints all cloudtrail write events in selected format. Can specify (username, time, event, arn, resource-name, resource-type, arn). i.e --print-format username,time,event (default [event,time,username,arn])
+  -r, --raw-event                        Prints the cloudtrail events to the console in raw json format
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --since string                     Specifies that only events that occur within the specified time are returned. Defaults to 1h.Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h". (default "1h")
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --until string                     Specifies all events that occur before the specified time. Format "YY-MM-DD,hh:mm:ss".
+  -u, --url                              Generates Url link to cloud console cloudtrail event
+```
+
+### osdctl cluster
+
+Provides information for a specified cluster
+
+```
+osdctl cluster [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for cluster
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster break-glass
+
+Obtain emergency credentials to access the given cluster. You must be logged into the cluster's hive shard
+
+```
+osdctl cluster break-glass --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide the internal ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for break-glass
+      --hive-ocm-url string              (optional) OCM environment URL for hive operations. Aliases: 'production', 'staging', 'integration'. If not specified, uses the same OCM environment as the target cluster.
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command, which requires elevation, to be run (usualy an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster break-glass cleanup
+
+Relinquish emergency access from the given cluster. If the cluster is PrivateLink or Private
+Service Connect (PSC), it deletes all jump pods in the cluster's namespace (because of this, you
+must be logged into the hive shard when dropping access for PrivateLink/PSC clusters). For other
+clusters, the $KUBECONFIG environment variable is unset, if applicable.
+
+```
+osdctl cluster break-glass cleanup --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                [Mandatory] Provide the Internal ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for cleanup
+      --hive-ocm-url string              (optional) OCM environment URL for Hive operations. Aliases: 'production', 'staging', 'integration'. This only changes how the Hive cluster is resolved; the target cluster still comes from the current/default OCM environment.
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    [Mandatory for PrivateLink/PSC clusters] The reason for this command, which requires elevation, to be run (usually an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster cad
+
+Provides commands to run CAD tasks
+
+```
+osdctl cluster cad [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for cad
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster cad run
+
+Run a manual investigation on the Configuration Anomaly Detection (CAD) cluster.
+
+This command schedules a Tekton PipelineRun on the appropriate CAD cluster (stage or production)
+to run an investigation against a target cluster. The results will be written to a backplane report.
+
+Prerequisites:
+  - Connected to the target cluster's OCM environment (production or stage)
+  - The CAD clusters themselves are always in production OCM
+
+Available Investigations:
+  chgm, cmbb, can-not-retrieve-updates, ai, cpd, etcd-quota-low,
+  insightsoperatordown, machine-health-check, must-gather, upgrade-config,
+  restart-controlplane, describe-nodes
+
+Note:
+  After the investigation completes (may take several minutes), view results using:
+```bash
+osdctl cluster reports list -C <cluster-id> -l 1
+```
+
+  You must be connected to the target cluster's OCM environment to view its reports.
+
+```
+osdctl cluster cad run [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID (internal or external)
+      --context string                   The name of the kubeconfig context to use
+  -d, --dry-run                          Dry-Run: Run the investigation with the dry-run flag. This will not create a report.
+  -e, --environment string               Environment in which the target cluster runs. Allowed values: "stage" or "production"
+  -h, --help                             help for run
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+  -i, --investigation string             Investigation name
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --params stringArray               Investigation-specific parameters as KEY=VALUE (can be specified multiple times)
+      --reason string                    Provide a reason for running a manual investigation, used for backplane. Eg: 'OHSS-XXXX', or '#ITN-2024-XXXXX.
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster change-ebs-volume-type
+
+Change the EBS volume type for control plane and/or infra nodes on a ROSA/OSD cluster.
+
+This command replaces machines to change volume types (not in-place modification).
+For control plane nodes, it patches the ControlPlaneMachineSet (CPMS) which automatically
+rolls nodes one at a time. For infra nodes, it uses the Hive MachinePool dance to safely
+replace all infra nodes with new ones using the target volume type.
+
+Pre-flight checks are performed automatically before making changes.
+
+```
+osdctl cluster change-ebs-volume-type [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                The internal/external ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for change-ebs-volume-type
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    Reason for elevation (OHSS/PD/JIRA ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+      --role string                      Node role to change: control-plane or infra
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --type string                      Target EBS volume type (gp3)
+```
+
+### osdctl cluster check-banned-user
+
+Checks if the cluster owner is a banned user.
+
+```
+osdctl cluster check-banned-user --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide internal ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for check-banned-user
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster context
+
+Shows the context of a specified cluster
+
+```
+osdctl cluster context --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide internal ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -d, --days int                         Command will display X days of Error SLs sent to the cluster. Days is set to 30 by default (default 30)
+      --full                             Run full suite of checks.
+  -h, --help                             help for context
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --jiratoken jira_token             Pass in the Jira access token directly. If not passed in, by default will read jira_token from ~/.config/osdctl.
+                                         Jira access tokens can be registered by visiting https://redhat.atlassian.net//secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --oauthtoken pd_oauth_token        Pass in PD oauthtoken directly. If not passed in, by default will read pd_oauth_token from ~/.config/osdctl.
+                                         PD OAuth tokens can be generated by visiting https://martindstone.github.io/PDOAuth/
+  -o, --output string                    Valid formats are ['long', 'short', 'json']. Output is set to 'long' by default (default "long")
+      --pages int                        Command will display X pages of Cloud Trail logs for the cluster. Pages is set to 40 by default (default 40)
+  -p, --profile string                   AWS Profile
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+  -t, --team-ids teamIds                 Pass in PD team IDs directly to filter the PD Alerts by team. Can also be defined as teamIds in ~/.config/osdctl
+                                         Will show all PD Alerts for all PD service IDs if none is defined
+      --usertoken pd_user_token          Pass in PD usertoken directly. If not passed in, by default will read pd_user_token from ~/config/osdctl
+      --verbose                          Verbose output
+```
+
+### osdctl cluster cpd
+
+
+Helps investigate OSD/ROSA cluster provisioning delays (CPD) or failures
+
+  This command only supports AWS at the moment and will:
+	
+  * Check the cluster's dnszone.hive.openshift.io custom resource
+  * Check whether a known OCM error code and message has been shared with the customer already
+  * Check that the cluster's VPC and/or subnet route table(s) contain a route for 0.0.0.0/0 if it's BYOVPC
+
+
+```
+osdctl cluster cpd [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                The internal (OCM) Cluster ID
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for cpd
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --profile string                   AWS profile name
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster detach-stuck-volume
+
+Detach openshift-monitoring namespace's volume from a cluster forcefully
+
+```
+osdctl cluster detach-stuck-volume --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide internal ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for detach-stuck-volume
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command, which requires elevation, to be run (usually an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster diff
+
+Compare two cluster snapshots to identify changes.
+
+This command compares two snapshot files created by 'osdctl cluster snapshot'
+and reports the differences. This is useful for understanding what changed
+in a cluster during feature testing or validation.
+
+Changes are categorized as:
+- added: Resource exists in after but not in before
+- removed: Resource exists in before but not in after  
+- modified: Resource exists in both but with different values
+
+```
+osdctl cluster diff <before.yaml> <after.yaml> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for diff
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --json                             Output diff in JSON format
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster etcd-health-check
+
+Checks etcd component health status for member replacement
+
+```
+osdctl cluster etcd-health-check --cluster-id <cluster-id> --reason <reason for escalation> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide the internal Cluster ID or name to perform health check on
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for etcd-health-check
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    Specify a reason for privilege escalation
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster etcd-member-replace
+
+Replaces an unhealthy etcd node using the member id provided
+
+```
+osdctl cluster etcd-member-replace --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide internal Cluster ID
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for etcd-member-replace
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --node string                      Node ID (required)
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command, which requires elevation, to be run (usually an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster from-infra-id
+
+Get cluster ID and external ID from a given infrastructure ID commonly used by Splunk
+
+```
+osdctl cluster from-infra-id [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for from-infra-id
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster get-env-vars
+
+Print a cluster's ID/management namespaces, optionally as env variables
+
+```
+osdctl cluster get-env-vars --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide internal ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for get-env-vars
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['text', 'json', 'env'] (default "text")
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster health
+
+Describes health of cluster nodes and provides other cluster vitals.
+
+```
+osdctl cluster health [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal Cluster ID
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for health
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --profile string                   AWS Profile
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --verbose                          Verbose output
+```
+
+### osdctl cluster hypershift-info
+
+This command aggregates AWS objects from the cluster, management cluster and privatelink for hypershift cluster.
+It attempts to render the relationships as graphviz if that output format is chosen or will simply print the output as tables.
+
+```
+osdctl cluster hypershift-info [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide internal ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for hypershift-info
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    output format ['table', 'graphviz'] (default "graphviz")
+  -l, --privatelinkaccount string        Privatelink account ID
+  -p, --profile string                   AWS Profile
+  -r, --region string                    AWS Region
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --verbose                          Verbose output
+```
+
+### osdctl cluster imdsv2
+
+Migrate ROSA Classic cluster nodes to enforce IMDSv2.
+
+This automates the SOP for migrating machines to IMDSv2 by:
+- Patching Hive MachinePools to require IMDSv2
+- Replacing infra nodes (one at a time)
+- Updating ControlPlaneMachineSet for automatic master node rollout
+- Validating all nodes/machines are using IMDSv2
+
+Pre-flight checks verify cluster health before making changes.
+
+```
+osdctl cluster imdsv2 [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                The internal/external ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for imdsv2
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --nodes string                     Node roles to migrate: all, master, infra, workers (default "all")
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    Reason for elevation (OHSS/PD/JIRA ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster logging-check
+
+Shows the logging support status of a specified cluster
+
+```
+osdctl cluster logging-check --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                The internal ID of the cluster to check (required)
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for logging-check
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --verbose                          Verbose output
+```
+
+### osdctl cluster orgId
+
+Get the OCM org ID for a given cluster
+
+```
+osdctl cluster orgId --cluster-id <cluster-identifier [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                The internal ID of the cluster to check (required)
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for orgId
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster owner
+
+List the clusters owned by the user (can be specified to any user, not only yourself)
+
+```
+osdctl cluster owner [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for owner
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+  -u, --user-id string                   user to check the cluster owner on
+```
+
+### osdctl cluster pull-secret
+
+Diagnose and manage cluster pull secrets.
+
+```
+osdctl cluster pull-secret [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for pull-secret
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster pull-secret audit
+
+Audit pull secret status for all clusters sharing the same OCM account.
+
+Given a cluster ID or account ID, resolves the owner account and lists all
+clusters owned by that account. Compares cluster creation dates against the
+account's registry credential update timestamps to flag clusters that may
+have stale pull secrets.
+
+Use --validate to connect to each cluster and compare its pull secret
+against the OCM access token and registry credential auths.
+
+For validating a single cluster, use 'osdctl cluster pull-secret validate'.
+
+```
+osdctl cluster pull-secret audit [flags]
+```
+
+#### Flags
+
+```
+  -A, --account-id string                OCM account ID directly
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Any cluster owned by the account (used to resolve the owner)
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for audit
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    Elevation reason for cluster connections
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --validate                         Validate all clusters' pull secrets against OCM
+```
+
+### osdctl cluster pull-secret update
+
+Refresh a cluster's pull secret from the cluster owner's OCM account.
+
+This updates the pull secret on a ROSA HCP or Classic cluster without performing
+an ownership transfer. The pull secret is rebuilt from the latest credentials
+in the cluster owner's OCM account.
+
+A pre-flight check always runs first. If any checks fail, the command exits
+unless --force is specified (requires typing YES to confirm).
+
+See documentation prior to executing:
+https://github.com/openshift/ops-sop/blob/master/hypershift/knowledge_base/howto/replace-pull-secret.md
+https://github.com/openshift/ops-sop/blob/master/v4/howto/transfer_cluster_ownership.md
+
+```
+osdctl cluster pull-secret update [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                The Internal/External Cluster ID or Cluster Name
+      --context string                   The name of the kubeconfig context to use
+  -d, --dry-run                          Dry-run - show what would change but do not apply
+      --force                            Proceed despite pre-flight failures or no-op detection (requires YES confirmation)
+  -h, --help                             help for update
+      --hive-ocm-url string              OCM environment for Hive operations (aliases: production, staging, integration)
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command (usually an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster pull-secret validate
+
+
+	Attempts to validate if a cluster's pull-secret auth values are in sync with the account's email,
+	registry_credential, and access token data stored in OCM.
+
+	Service logs are automatically sent for detected issues. Multiple failures are aggregated into
+	a single service log. Use --skip-service-logs to prevent sending service logs.
+
+	If this is being executed against a cluster which is not owned by the current OCM account,
+	Region Lead permissions are required to view and validate the OCM AccessToken.
+
+
+```
+osdctl cluster pull-secret validate [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Provide internal ID of the cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for validate
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -l, --log-level string                 debug, info, warn, error. (default=info) (default "info")
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    Mandatory reason for this command to be run (usually includes an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-access-token                Exclude OCM AccessToken checks against cluster secret
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+      --skip-registry-creds              Exclude OCM Registry Credentials checks against cluster secret
+      --skip-service-logs                Skip sending service logs (useful for testing/automation)
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster reports
+
+Manage cluster reports stored in backplane-api.
+
+Cluster reports are used to store and retrieve diagnostic information
+and other data related to cluster operations. Reports are associated with a
+specific cluster and include a summary and base64-encoded data.
+
+```
+osdctl cluster reports [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for reports
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster reports create
+
+Create a new report for a cluster with data from a string or file.
+
+This command creates a new report associated with a cluster. The report
+includes a summary (title) and data content. You can provide the data either
+directly as a string using --data, or from a file using --file. The data
+will be automatically base64-encoded before storage.
+
+```
+osdctl cluster reports create [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID (internal or external)
+      --context string                   The name of the kubeconfig context to use
+  -d, --data string                      Report data as a string (will be base64 encoded)
+  -f, --file string                      Path to file containing report data (will be base64 encoded)
+  -h, --help                             help for create
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Output format: table or json (default "table")
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --summary string                   Summary/title for the report
+```
+
+### osdctl cluster reports get
+
+Retrieve and display a specific report by its ID.
+
+This command fetches a report by its report ID and displays the decoded
+report data. Use 'list' to find available report IDs.
+
+If no report ID is provided, the latest report for the cluster is returned.
+
+```
+osdctl cluster reports get [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID (internal or external)
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for get
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Output format: text or json (default "text")
+  -r, --report-id string                 Report ID to retrieve (defaults to the latest report if omitted)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster reports list
+
+List all reports for a specific cluster.
+
+This command retrieves and displays all reports associated with a cluster,
+showing the report ID, summary, and creation timestamp. You can optionally
+limit the number of reports returned to the most recent N reports.
+
+```
+osdctl cluster reports list [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID (internal or external)
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for list
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -l, --last int                         Number of most recent reports to retrieve (backend defaults to 10)
+  -o, --output string                    Output format: table or json (default "table")
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster resize
+
+resize control-plane/infra nodes
+
+```
+osdctl cluster resize [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for resize
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster resize control-plane
+
+Resize an OSD/ROSA cluster's control plane nodes
+
+  Requires previous login to the api server via "ocm backplane login".
+  The command prints the target cluster identity and requires confirmation before elevation.
+  Hive, Management, and Service clusters get an extra warning because resizing them can
+  affect many customer clusters. This command is not for HCP clusters.
+  The user will be prompted to send a service log after initiating the resize. The resize process runs asynchronously,
+  and this command exits immediately after sending the service log. Any issues with the resize will be reported via PagerDuty.
+
+```
+osdctl cluster resize control-plane [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                The internal ID of the cluster to perform actions on
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for control-plane
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --machine-type string              The target AWS machine type to resize to (e.g. m5.2xlarge)
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command, which requires elevation, to be run (usually an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster resize infra
+
+Resize an OSD/ROSA cluster's infra nodes
+
+  This command automates most of the "machinepool dance" to safely resize infra nodes for production classic OSD/ROSA 
+  clusters. This DOES NOT work in non-production due to environmental differences.
+
+  Remember to follow the SOP for preparation and follow up steps:
+
+    https://github.com/openshift/ops-sop/blob/master/v4/howto/resize-infras-workers.md
+
+
+```
+osdctl cluster resize infra [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                OCM internal/external cluster id or cluster name to resize infra nodes for.
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for infra
+      --hive-ocm-url string              (optional) OCM environment URL for hive operations. Aliases: 'production', 'staging', 'integration'. If not specified, uses the same OCM environment as the target cluster.
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --instance-type string             (optional) Override for an AWS or GCP instance type to resize the infra nodes to, by default supported instance types are automatically selected.
+      --justification string             The justification behind resize
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --ohss string                      OHSS ticket tracking this infra node resize
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command, which requires elevation, to be run (usually an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster resize request-serving-nodes
+
+Resize a ROSA HCP cluster's request-serving nodes by applying a cluster-size-override annotation
+
+```
+osdctl cluster resize request-serving-nodes [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                The internal ID of the cluster to perform actions on
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for request-serving-nodes
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command, which requires elevation, to be run (usually an OHSS or PD ticket)
+      --remove-override                  Remove the cluster-size-override annotation to revert to default sizing behavior
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --size string                      The target request-serving node size (e.g. m54xl). If not specified, will auto-select the next size up
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster resync
+
+Force a resync of a cluster from Hive
+
+  Normally, clusters are periodically synced by Hive every two hours at minimum. This command deletes a cluster's
+  clustersync from its managing Hive cluster, causing the clustersync to be recreated in most circumstances and forcing
+  a resync of all SyncSets and SelectorSyncSets. The command will also wait for the clustersync to report its status
+  again (Success or Failure) before exiting.
+
+
+```
+osdctl cluster resync [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                OCM internal/external cluster id or cluster name to delete the clustersync for.
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for resync
+      --hive-ocm-url string              (optional) OCM environment URL for Hive operations. Aliases: 'production', 'staging', 'integration'. This only changes how the Hive cluster is resolved; the target cluster still comes from the current/default OCM environment.
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster snapshot
+
+Capture a point-in-time snapshot of cluster state for evidence collection.
+
+This command captures the current state of key cluster resources including:
+- Namespace states
+- Node conditions and readiness  
+- ClusterOperator status
+- Custom resources (optional)
+
+The snapshot can be saved to a YAML file and later compared using 
+'osdctl cluster diff' to identify changes during feature testing.
+
+```
+osdctl cluster snapshot [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID (internal, external, or name)
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for snapshot
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --namespaces strings               Specific namespaces to include (default: all openshift-* namespaces)
+  -o, --output string                    Output file path (YAML format)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+      --resources strings                Additional resource types to capture (e.g., pods,deployments)
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster sre-operators
+
+SRE operator related utilities
+
+```
+osdctl cluster sre-operators [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for sre-operators
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster sre-operators describe
+
+
+  Helps obtain various health information about a specified SRE operator within a cluster,
+  including CSV, Subscription, OperatorGroup, Deployment, and Pod health statuses.
+
+  A git_access token is required to fetch the latest version of the operators, and can be 
+  set within the config file using the 'osdctl setup' command.
+
+  The command creates a Kubernetes client to access the current cluster context, and GitLab/GitHub
+  clients to fetch the latest versions of each operator from its respective repository.
+	
+
+```
+osdctl cluster sre-operators describe [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for describe
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster sre-operators list
+
+
+	Lists the current version, channel, and status of SRE operators running in the current 
+	cluster context, and by default fetches the latest version from the operators' repositories.
+	
+	A git_access token is required to fetch the latest version of the operators, and can be 
+	set within the config file using the 'osdctl setup' command.
+	
+	The command creates a Kubernetes client to access the current cluster context, and GitLab/GitHub
+	clients to fetch the latest versions of each operator from its respective repository.
+	
+
+```
+osdctl cluster sre-operators list [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for list
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --no-commit                        Excluse commit shas and repository URL from the output
+      --no-headers                       Exclude headers from the output
+      --operator string                  Filter to only show the specified operator.
+      --outdated                         Filter to only show operators running outdated versions
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --short                            Exclude fetching the latest version from repositories for faster output
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster ssh
+
+utilities for accessing cluster via ssh
+
+```
+osdctl cluster ssh [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for ssh
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster ssh key
+
+Retrieve a cluster's SSH key from Hive. If a cluster-id is provided, then the key retrieved will be for that cluster. If no cluster-id is provided, then the key for the cluster backplane is currently logged into will be used instead. This command should only be used as a last resort, when all other means of accessing a node are lost.
+
+```
+osdctl cluster ssh key --reason $reason [--cluster-id $CLUSTER_ID] [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster identifier (internal ID, UUID, name, etc) to retrieve the SSH key for. If not specified, the current cluster will be used.
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for key
+      --hive-ocm-url string              (optional) OCM environment URL for hive operations. Aliases: 'production', 'staging', 'integration'. If not specified, uses the same OCM environment as the target cluster.
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    Provide a reason for accessing the clusters SSH key, used for backplane. Eg: 'OHSS-XXXX', or '#ITN-2024-XXXXX
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+  -y, --yes                              Skip any confirmation prompts and print the key automatically. Useful for redirects and scripting.
+```
+
+### osdctl cluster support
+
+Cluster Support
+
+```
+osdctl cluster support [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for support
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster support delete
+
+Delete specified limited support reason for a given cluster
+
+```
+osdctl cluster support delete --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --all                                Remove all limited support reasons
+      --as string                          Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                     The name of the kubeconfig cluster to use
+  -C, --cluster-id string                  Internal cluster ID (required)
+      --context string                     The name of the kubeconfig context to use
+  -d, --dry-run                            Dry-run - print the limited support reason about to be sent but don't send it.
+  -h, --help                               help for delete
+      --insecure-skip-tls-verify           If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                  Path to the kubeconfig file to use for CLI requests.
+  -i, --limited-support-reason-id string   Limited support reason ID
+  -o, --output string                      Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string             The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                      The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy     Don't use the configured aws_proxy value
+  -S, --skip-version-check                 skip checking to see if this is the most recent release
+      --verbose                            Verbose output
+```
+
+### osdctl cluster support post
+
+Sends limited support reason to a given cluster, along with an internal service log detailing why the cluster was placed into limited support.
+The caller will be prompted to continue before sending the limited support reason.
+
+```
+osdctl cluster support post --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal Cluster ID (required)
+      --context string                   The name of the kubeconfig context to use
+      --evidence string                  (optional) The reasoning that led to the decision to place the cluster in limited support. Can also be a link to a Jira case. Used for internal service log only.
+  -h, --help                             help for post
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --misconfiguration cloud           The type of misconfiguration responsible for the cluster being placed into limited support. Valid values are cloud or `cluster`.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --param stringArray                Specify a key-value pair (eg. -p FOO=BAR) to set/override a parameter value in the template.
+      --problem string                   Complete sentence(s) describing the problem responsible for the cluster being placed into limited support. Will form the limited support message with the contents of --resolution appended
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+      --resolution string                Complete sentence(s) describing the steps for the customer to take to resolve the issue and move out of limited support. Will form the limited support message with the contents of --problem prepended
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+  -t, --template string                  Message template file or URL
+```
+
+### osdctl cluster support status
+
+Shows the support status of a specified cluster
+
+```
+osdctl cluster support status --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID for which to get support status
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for status
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --verbose                          Verbose output
+```
+
+### osdctl cluster transfer-owner
+
+Transfer cluster ownership to a new user (to be done by Region Lead)
+
+```
+osdctl cluster transfer-owner [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                The Internal Cluster ID/External Cluster ID/ Cluster Name
+      --context string                   The name of the kubeconfig context to use
+  -d, --dry-run                          Dry-run - show all changes but do not apply them
+  -h, --help                             help for transfer-owner
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --new-owner string                 The new owner's username to transfer the cluster to
+      --old-owner string                 The old owner's username to transfer the cluster from
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command, which requires elevation, to be run (usualy an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster validate-pull-secret
+
+Checks if the pull secret email matches the owner email.
+
+The command will by default attempt to create a managedjob on the cluster to complete the task.
+However if this fails (e.g. pod fails to run on the cluster), the fallback option of elevating
+with backplane (requires reason for elevation) can be run. You can also directly use backplane
+elevation by setting --managed-script=false.
+
+
+```
+osdctl cluster validate-pull-secret --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                The internal ID of the cluster to check (only required if elevating, and ID is not found within context.)
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for validate-pull-secret
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --managed-script                   Use managed job approach to get pull secret (default true). Set to false to use backplane elevation directly (default true)
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command to be run (usually an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cluster verify-dns
+
+Performs DNS resolution tests for HCP clusters.
+
+Note: This command should be run when on the Red Hat VPN
+
+This command tests DNS resolution for cluster public endpoints:
+- Wildcard A record: *.apps.rosa.<domain-prefix>.<base-domain>
+- Apps CNAME: apps.rosa.<domain-prefix>.<base-domain>
+- ACME challenge CNAME: _acme-challenge.apps.rosa.<domain-prefix>.<base-domain>
+- Cluster ID CNAME: <cluster-id>.rosa.<domain-prefix>.<base-domain>
+- ACME cluster CNAME: _acme-challenge.<cluster-id>.rosa.<domain-prefix>.<base-domain>
+- API record: api.<domain-prefix>.<base-domain> (A record or CNAME based on PrivateLink)
+- OAuth record: oauth.<domain-prefix>.<base-domain> (A record or CNAME based on PrivateLink)
+
+This command only supports HCP (Hosted Control Plane) clusters.
+
+Output Formats:
+- table (default): Human-readable table format with summary and recommendations
+- json: JSON format for programmatic consumption
+
+
+```
+osdctl cluster verify-dns --cluster-id <cluster-id> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID (internal or external)
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for verify-dns
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Output format: 'table' or 'json' (default "table")
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+  -v, --verbose                          Verbose output
+```
+
+### osdctl cost
+
+The cost command allows for cost management on the AWS platform (other 
+platforms may be added in the future)
+
+```
+osdctl cost [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -a, --aws-access-key-id string         AWS Access Key ID
+  -c, --aws-config string                specify AWS config file path
+  -p, --aws-profile string               specify AWS profile
+  -g, --aws-region string                specify AWS region (default "us-east-1")
+  -x, --aws-secret-access-key string     AWS Secret Access Key
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for cost
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cost carbon-report
+
+Generate carbon emissions report csv to stdout for a given AWS Account and Usage Period
+
+```
+osdctl cost carbon-report [flags]
+```
+
+#### Flags
+
+```
+      --account string                   AWS account number
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -a, --aws-access-key-id string         AWS Access Key ID
+  -c, --aws-config string                specify AWS config file path
+  -p, --aws-profile string               specify AWS profile
+  -g, --aws-region string                specify AWS region (default "us-east-1")
+  -x, --aws-secret-access-key string     AWS Secret Access Key
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for carbon-report
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --usage-period string              Usage period in YYYY or YYYY-MM format
+```
+
+### osdctl cost create
+
+Create a cost category for the given OU
+
+```
+osdctl cost create [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -a, --aws-access-key-id string         AWS Access Key ID
+  -c, --aws-config string                specify AWS config file path
+  -p, --aws-profile string               specify AWS profile
+  -g, --aws-region string                specify AWS region (default "us-east-1")
+  -x, --aws-secret-access-key string     AWS Secret Access Key
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for create
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --ou string                        get OU ID
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl cost get
+
+Get total cost of a given OU
+
+```
+osdctl cost get [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -a, --aws-access-key-id string         AWS Access Key ID
+  -c, --aws-config string                specify AWS config file path
+  -p, --aws-profile string               specify AWS profile
+  -g, --aws-region string                specify AWS region (default "us-east-1")
+  -x, --aws-secret-access-key string     AWS Secret Access Key
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+      --csv                              output result as csv
+      --end string                       set end date range
+  -h, --help                             help for get
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --ou string                        set OU ID
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -r, --recursive                        recurse through OUs
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --start string                     set start date range
+      --sum                              Hide sum rows (default true)
+  -t, --time string                      set time. One of 'LM', 'MTD', 'YTD', '3M', '6M', '1Y'
+```
+
+### osdctl cost list
+
+List the cost of each Account/OU under given OU
+
+```
+osdctl cost list [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -a, --aws-access-key-id string         AWS Access Key ID
+  -c, --aws-config string                specify AWS config file path
+  -p, --aws-profile string               specify AWS profile
+  -g, --aws-region string                specify AWS region (default "us-east-1")
+  -x, --aws-secret-access-key string     AWS Secret Access Key
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+      --csv                              output result as csv
+      --end string                       set end date range
+  -h, --help                             help for list
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --level string                     Cost cummulation level: possible options: ou, account (default "ou")
+      --ou stringArray                   get OU ID
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --start string                     set start date range
+      --sum                              Hide sum rows (default true)
+  -t, --time string                      set time. One of 'LM', 'MTD', 'YTD', '3M', '6M', '1Y'
+```
+
+### osdctl cost reconcile
+
+Checks if there's a cost category for every OU. If an OU is missing a cost category, creates the cost category
+
+```
+osdctl cost reconcile [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -a, --aws-access-key-id string         AWS Access Key ID
+  -c, --aws-config string                specify AWS config file path
+  -p, --aws-profile string               specify AWS profile
+  -g, --aws-region string                specify AWS region (default "us-east-1")
+  -x, --aws-secret-access-key string     AWS Secret Access Key
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for reconcile
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --ou string                        get OU ID
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl env
+
+
+Creates an isolated environment where you can interact with a cluster.
+The environment is set up in a dedicated folder in $HOME/.ocenv.
+The $CLUSTERID variable will be populated with the external ID of the cluster you're logged in to.
+
+*PS1*
+osdctl env renders the required PS1 function 'kube_ps1' to use when logged in to a cluster.
+You need to include it inside your .bashrc or .bash_profile by adding a snippet like the following:
+
+export PS1='...other information for your PS1... $(kube_ps1) \$ '
+
+e.g.
+
+export PS1='\[\033[36m\]\u\[\033[m\]@\[\033[32m\]\h:\[\033[33;1m\]\w\[\033[m\]$(kube_ps1) \$ '
+
+osdctl env creates a new ocm and kube config so you can log in to different environments at the same time.
+When initialized, osdctl env will copy the ocm config you're currently using.
+
+*Logging in to the cluster*
+
+To log in to a cluster within the environment using backplane, osdctl creates the ocb command.
+The ocb command is created in the bin directory in the environment folder and added to the PATH when inside the environment.
+
+
+```
+osdctl env [flags] [env-alias]
+```
+
+#### Flags
+
+```
+  -a, --api string                       OpenShift API URL for individual cluster login
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID
+      --context string                   The name of the kubeconfig context to use
+  -d, --delete                           Delete environment
+  -k, --export-kubeconfig                Output export kubeconfig statement, to use environment outside of the env directory
+  -h, --help                             help for env
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+  -K, --kubeconfig string                KUBECONFIG file to use in this env (will be copied to the environment dir)
+  -l, --login-script string              OCM login script to execute in a loop in ocb every 30 seconds
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --password string                  Password for individual cluster login
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -r, --reset                            Reset environment
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+  -t, --temp                             Delete environment on exit
+  -u, --username string                  Username for individual cluster login
+```
+
+### osdctl evidence
+
+Evidence collection utilities for feature testing.
+
+This command group provides tools to help SRE teams collect evidence
+during feature validation testing. The collected evidence can include
+CloudTrail logs, cluster snapshots, and other diagnostic information.
+
+```
+osdctl evidence [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for evidence
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl evidence collect
+
+Collect comprehensive evidence from a cluster and AWS for feature testing.
+
+This all-in-one command gathers:
+- Cluster state (nodes, operators, machine configs)
+- CloudTrail error events (permission denied, etc.)
+- Recent Kubernetes events (optional)
+- must-gather output (optional)
+
+The collected evidence is saved to the specified output directory for
+inclusion in test reports and feature validation documentation.
+
+```
+osdctl evidence collect [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID (internal, external, or name)
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for collect
+      --include-events                   Include Kubernetes events in collection
+      --include-must-gather              Run must-gather and include output
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Output directory for collected evidence
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --since string                     Time window to look back for events (e.g., 30m, 1h, 2h) (default "1h")
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+      --skip-cloudtrail                  Skip CloudTrail event collection
+      --skip-cluster-state               Skip cluster state collection
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp
+
+```
+osdctl hcp [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for hcp
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp backup
+
+Manage Velero backups for HCP clusters
+
+```
+osdctl hcp backup [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for backup
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp backup create
+
+Trigger a Velero backup for an HCP cluster using the cluster's existing daily schedule.
+
+This command:
+  1. Logs into the Management Cluster for the given HCP cluster (unprivileged)
+  2. Validates the Velero schedule exists in the openshift-adp namespace
+  3. Logs into the Management Cluster again with elevated permissions (backplane-cluster-admin)
+  4. Triggers an immediate backup from the schedule via velero backup create --from-schedule
+
+Optional metadata can be attached to the Velero Backup CR:
+
+  --label key=value       Add a label to the Backup CR (may be repeated)
+  --annotation key=value  Add an annotation to the Backup CR (may be repeated)
+
+This command only triggers the backup. It does not wait for completion.
+To monitor the backup status after triggering, log into the management cluster
+and review the Backup CR:
+  ocm backplane login --manager <CLUSTER_ID>
+  oc get backup <backup-id> -n openshift-adp
+
+
+```
+osdctl hcp backup create --cluster-id <cluster-id> --reason <reason> [flags]
+```
+
+#### Flags
+
+```
+      --annotation stringToString        Annotation to add to the Velero Backup CR (key=value); may be repeated (default [])
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID, name, or external ID of the HCP cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for create
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --label stringToString             Label to add to the Velero Backup CR (key=value); may be repeated (default [])
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    Reason for privilege elevation (e.g., OHSS-1234 or PD incident ID)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp backup discover
+
+Discover HCP backups from the disaster recovery S3 bucket
+
+```
+osdctl hcp backup discover --cluster-id <cluster-id> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID, name, or external ID of the HCP cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for discover
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -l, --limit int                        Number of most recent backups to display (-1 displays all) (default 1)
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --profile string                   AWS profile used to assume the DR account role
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp force-upgrade
+
+Schedule forced control plane upgrades for ROSA HCP clusters. This command skips all validation checks
+(critical alerts, cluster conditions, node pool checks, and version gate agreements).
+
+⚠️ REQUIRES ForceUpgrader PERMISSIONS ⚠️
+
+This command can target clusters in two ways:
+- Single cluster: --cluster-id <ID>
+- Multiple clusters from file: --clusters-file <file.json>
+
+UPGRADE BEHAVIOR:
+The command explicitly upgrades clusters to the LATEST Z-STREAM version of the specified Y-stream.
+This serves two purposes:
+1. Force upgrades to latest z-stream of the SAME y-stream for critical bug fixes
+2. Force upgrades to latest z-stream of a SUBSEQUENT y-stream when current y-stream goes out of support
+
+Example: --target-y 4.15 will upgrade to the latest available 4.15.z version (e.g., 4.15.32).
+
+```
+osdctl hcp force-upgrade [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                ID of the target HCP cluster
+  -c, --clusters-file string             JSON file containing cluster IDs (format: {"clusters":["$CLUSTERID1", "$CLUSTERID2"]})
+      --context string                   The name of the kubeconfig context to use
+      --dry-run                          Simulate the upgrade without making any changes
+  -h, --help                             help for force-upgrade
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --next-run-minutes int             Offset in minutes for scheduling upgrade (minimum 6 for the scheduling to take place) (default 10)
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+      --send-service-log string          Send service log notification after scheduling upgrade. Specify template name (e.g., 'end-of-support') or file path (e.g., '/path/to/template.json')
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --target-y string                  Target Y-stream version (e.g., 4.15) - will upgrade to the LATEST Z-stream of this Y-stream
+```
+
+### osdctl hcp get-cp-autoscaling-status
+
+Query a single HCP management cluster to retrieve autoscaling status for all hosted clusters.
+
+This command is useful for checking the autoscaling configuration status of hosted clusters
+on a specific management cluster during day-to-day operations.
+
+```
+osdctl hcp get-cp-autoscaling-status [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for get-cp-autoscaling-status
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --mgmt-cluster-id string           Management cluster ID or name (required)
+      --no-headers                       Skip table headers in output
+      --output string                    Output format: text, json, yaml, csv (default "text")
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --show-only string                 Filter output: needs-removal, ready-for-migration, safe-to-remove-override
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp must-gather
+
+Create a must-gather for a HyperShift / ROSA HCP cluster.
+
+--cluster-id is the cluster you want data about; --gather selects which cluster(s) are
+actually collected from. The supplied ID and the gather targets are distinct: the default
+target 'hcp' requires an HCP cluster ID, while 'mc'/'sc'/'sc_acm' can also be run directly
+against a management- or service-cluster ID.
+
+Gather targets:
+  hcp     HCP control-plane logs & events from RHOBS, plus an ACM hypershift dump (requires an HCP ID)
+  mc      management-cluster infrastructure must-gather
+  sc      service-cluster infrastructure must-gather
+  sc_acm  service-cluster ACM must-gather
+
+Supported workflows:
+  HCP cluster ID:         --gather hcp (default) | --gather mc | --gather sc,sc_acm | any combination
+  Management cluster ID:  --gather mc
+  Service cluster ID:     --gather sc,sc_acm
+
+The 'hcp' target reads control-plane logs from RHOBS and therefore requires RHOBS client
+credentials (RHOBS_CLIENT_ID / RHOBS_CLIENT_SECRET as env vars, in ~/.config/osdctl, or via Vault).
+
+```
+osdctl hcp must-gather --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --acm_image string                 Overrides the acm must-gather image being used for acm mc, sc as well as hcp must-gathers. (default "quay.io/redhat-user-workloads/crt-redhat-acm-tenant/must-gather-acm-51:203e21767f29c24069a92565638befed9fc7cc41")
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID of the cluster to gather data from
+      --context string                   The name of the kubeconfig context to use
+      --gather string                    Comma-separated list of gather targets (available: hcp, mc, sc, sc_acm). (default "hcp")
+  -h, --help                             help for must-gather
+      --hive-ocm-url string              OCM environment for the RHOBS/hive lookups used by the hcp target - aliases: "production", "staging", "integration". (default "production")
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --max-log-lines int                Maximum number of most-recent log lines to collect per namespace from RHOBS for the hcp target; a positive cap is written newest-first (0 = unlimited, oldest-first). (default 100000)
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --output-dir string                Directory to write the must-gather into (defaults to the current working directory). Avoid RAM-backed paths like /tmp (tmpfs) for large gathers.
+      --reason string                    The reason for this command, which requires elevation (e.g., OHSS ticket or PD incident).
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp restore
+
+Prepare and restore HCP clusters during disaster recovery
+
+```
+osdctl hcp restore [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for restore
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp restore create
+
+Create and monitor a Velero Restore in the target management cluster. The target defaults to the management cluster currently bound to the HCP; an explicit target must be in the HCP's region. Repeated invocations safely resume an active restore or report an already completed restore; failed attempts receive a new retry Restore.
+
+```
+osdctl hcp restore create --cluster-id <cluster-id> --backup-name <backup-name> --reason <reason> [--target-mc <management-cluster>] [--timeout <duration>] [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --backup-name string               Name of the completed Velero backup to restore
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID, name, or external ID of the HCP cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for create
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    Reason for elevated access
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --target-mc string                 Internal ID, name, or external ID of the management cluster that will run the restore
+      --timeout duration                 Maximum time to wait for the restore to complete (default 30m0s)
+```
+
+### osdctl hcp restore manifestwork
+
+Compare and relocate HCP ManifestWorks
+
+```
+osdctl hcp restore manifestwork [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for manifestwork
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp restore manifestwork compare
+
+Compare HCP ManifestWorks between management clusters
+
+```
+osdctl hcp restore manifestwork compare --cluster-id <cluster-id> --replacement-mc <management-cluster> --reason <reason> [--source-mc <management-cluster>] [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID, name, or external ID of the HCP cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for compare
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    Reason for elevated access
+      --replacement-mc string            Management cluster whose namespace contains the replacement ManifestWorks
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --source-mc string                 Management cluster whose namespace contains the ManifestWorks (defaults to the HCP management cluster)
+```
+
+### osdctl hcp restore manifestwork move
+
+Move HCP Velero and cluster resources in phases
+
+```
+osdctl hcp restore manifestwork move [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for move
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp restore manifestwork move cluster-resources
+
+Move the namespace, HostedCluster, and NodePool ManifestWorks
+
+```
+osdctl hcp restore manifestwork move cluster-resources --cluster-id <cluster-id> --replacement-mc <management-cluster> --reason <reason> [--source-mc <management-cluster>] [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID, name, or external ID of the HCP cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for cluster-resources
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    Reason for elevated access
+      --replacement-mc string            Management cluster whose namespace contains the replacement ManifestWorks
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --source-mc string                 Management cluster whose namespace contains the ManifestWorks (defaults to the HCP management cluster)
+```
+
+### osdctl hcp restore manifestwork move velero-resources
+
+Move the Velero resource ManifestWorks
+
+```
+osdctl hcp restore manifestwork move velero-resources --cluster-id <cluster-id> --replacement-mc <management-cluster> --reason <reason> [--source-mc <management-cluster>] [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID, name, or external ID of the HCP cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for velero-resources
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    Reason for elevated access
+      --replacement-mc string            Management cluster whose namespace contains the replacement ManifestWorks
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --source-mc string                 Management cluster whose namespace contains the ManifestWorks (defaults to the HCP management cluster)
+```
+
+### osdctl hcp restore migrate-storage
+
+Discovers EBS VolumeSnapshotContents for the HCP on the replacement management cluster, stores the relevant inventory and snapshot mappings in a restartable journal, copies snapshots through a temporary source-account KMS key, replaces the target VSCs with the copied snapshot IDs, and resumes the control plane only after all replacement VSCs are ready to use.
+
+```
+osdctl hcp restore migrate-storage --cluster-id <cluster-id> --replacement-mc <management-cluster> --reason <reason> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID, name, or external ID of the HCP cluster
+      --concurrency int                  Maximum number of snapshot copy chains to run concurrently (default 4)
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for migrate-storage
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --profile string                   AWS profile used to assume management-cluster account roles
+      --reason string                    Reason for elevated access to the replacement management cluster
+      --replacement-mc string            Internal ID, name, or external ID of the replacement management cluster
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --snapshot-journal string          Path for the restartable snapshot journal (defaults to a cluster-specific file; existing journals prompt to resume or create a numbered file)
+      --source-mc string                 Internal ID, name, or external ID of the source management cluster (defaults to the HCP's current management cluster)
+      --timeout duration                 Maximum time to wait for all snapshot copies (default 2h0m0s)
+```
+
+### osdctl hcp restore reassign
+
+Reassign an HCP to a replacement management cluster in OCM
+
+```
+osdctl hcp restore reassign --cluster-id <cluster-id> --replacement-mc <management-cluster> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID, name, or external ID of the HCP cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for reassign
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --replacement-mc string            Internal ID, name, or external ID of the replacement management cluster
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp restore reimport
+
+Updates the recovered HCP ManagedCluster and add-on hosting annotations, then deletes old-host add-on ManifestWorks with the Orphan policy. ManagedClusterAddOns are retained.
+
+```
+osdctl hcp restore reimport --cluster-id <cluster-id> --replacement-mc <management-cluster> --reason <reason> [--timeout <duration>] [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID, name, or external ID of the HCP cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for reimport
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    Reason for elevated access
+      --replacement-mc string            Replacement management cluster
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --timeout duration                 Maximum time to wait for deletion (default 5m0s)
+```
+
+### osdctl hcp restore release-dns
+
+Release central DNS records for an HCP cluster
+
+```
+osdctl hcp restore release-dns --cluster-id <cluster-id> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID, name, or external ID of the HCP cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for release-dns
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --profile string                   AWS profile used to assume the central DNS account role
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp restore update-trust-policy
+
+Allow a replacement management cluster to access HCP backups
+
+```
+osdctl hcp restore update-trust-policy --cluster-id <cluster-id> --replacement-mc <management-cluster> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID, name, or external ID of the HCP cluster
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for update-trust-policy
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -p, --profile string                   AWS profile used to assume the DR account role
+      --replacement-mc string            Internal ID, name, or external ID of the replacement management cluster
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --source-mc string                 Internal ID, name, or external ID of the management cluster currently trusted by the backup role
+```
+
+### osdctl hcp status
+
+Display a comprehensive health overview of a ROSA HCP cluster using
+data from the OCM live resources endpoint. Shows ManifestWork sync status,
+HostedCluster conditions, certificate status, and NodePool health.
+
+```
+osdctl hcp status [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster name, ID, or external ID
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for status
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hcp transition-to-eus
+
+Transition ROSA HCP clusters from stable to EUS channel during End-of-Life handling.
+
+⚠️ IMPORTANT GUARDRAILS ⚠️
+This command is specifically designed for EVEN Y-STREAM end-of-life transitions (4.14, 4.16, 4.18, etc.).
+
+The command validates:
+- Cluster must be HCP (not Classic)
+- Cluster must be on an even y-stream (4.14, 4.16, 4.18, etc.)
+- Cluster must be on 'stable' channel (not already on 'eus')
+- Cluster must be in 'ready' state
+
+WORKFLOW:
+For clusters with recurring update policies:
+1. Saves the existing recurring update policy settings
+2. Deletes the recurring update policy
+3. Transitions the channel from 'stable' to 'eus'
+4. Verifies the channel change
+5. Restores the recurring update policy with original settings
+6. Prompts to send service log notification
+
+For clusters with individual updates:
+1. Transitions the channel from 'stable' to 'eus'
+2. Verifies the channel change
+3. Prompts to send service log notification
+
+SERVICE LOG BEHAVIOR:
+- After each successful transition, you will be prompted to optionally send a service log notification
+- On failures where recurring policy was modified and restored: You will be prompted to send an 'attempted' notification to the customer
+
+This approach extends the support lifecycle for clusters on even y-streams without forcing upgrades.
+
+```
+osdctl hcp transition-to-eus [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                ID of the target HCP cluster
+  -c, --clusters-file string             JSON file containing cluster IDs (format: {"clusters":["$CLUSTERID1", "$CLUSTERID2"]})
+      --context string                   The name of the kubeconfig context to use
+      --dry-run                          Simulate the transition without making any changes
+  -h, --help                             help for transition-to-eus
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hive
+
+hive related utilities
+
+```
+osdctl hive [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for hive
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hive clusterdeployment
+
+cluster deployment related utilities
+
+```
+osdctl hive clusterdeployment [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for clusterdeployment
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hive clusterdeployment list
+
+List cluster deployment crs
+
+```
+osdctl hive clusterdeployment list [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for list
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hive clusterdeployment listresources
+
+List all resources on a hive cluster related to a given cluster
+
+```
+osdctl hive clusterdeployment listresources [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Cluster ID
+      --context string                   The name of the kubeconfig context to use
+  -e, --external                         only list external resources (i.e. exclude resources in cluster namespace)
+  -h, --help                             help for listresources
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl hive clustersync-failures
+
+
+  Helps investigate ClusterSyncs in a failure state on OSD/ROSA hive shards.
+
+  This command by default will list ClusterSyncs that are in a failure state
+  for clusters that are not in limited support or hibernating.
+
+  Error messages are include in all output format except the text format.
+
+
+```
+osdctl hive clustersync-failures [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID to list failing syncsets and relative errors for a specific cluster.
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for clustersync-failures
+  -i, --hibernating                      Include hibernating clusters.
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -l, --limited-support                  Include clusters in limited support.
+      --no-headers                       Don't print headers when output format is set to text.
+      --order string                     Set the sorting order. Options: asc, desc. (default "asc")
+  -o, --output string                    Set the output format. Options: yaml, json, csv, text. (default "text")
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --sort-by string                   Sort the output by a specified field. Options: name, timestamp, failingsyncsets. (default "timestamp")
+      --syncsets                         Include failing syncsets. (default true)
+```
+
+### osdctl iampermissions
+
+STS/WIF utilities
+
+```
+osdctl iampermissions [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -c, --cloud CloudSpec                  cloud for which the policies should be retrieved. supported values: [aws, sts, gcp, wif] (default aws)
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for iampermissions
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl iampermissions diff
+
+Diff IAM permissions for cluster operators between two versions
+
+```
+osdctl iampermissions diff [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -b, --base-version string              
+  -c, --cloud CloudSpec                  cloud for which the policies should be retrieved. supported values: [aws, sts, gcp, wif] (default aws)
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for diff
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+  -t, --target-version string            
+```
+
+### osdctl iampermissions get
+
+Get OCP CredentialsRequests
+
+```
+osdctl iampermissions get [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -c, --cloud CloudSpec                  cloud for which the policies should be retrieved. supported values: [aws, sts, gcp, wif] (default aws)
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for get
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -r, --release-version string           
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl iampermissions save
+
+Save iam permissions for use in mcc
+
+```
+osdctl iampermissions save [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -c, --cloud CloudSpec                  cloud for which the policies should be retrieved. supported values: [aws, sts, gcp, wif] (default aws)
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -d, --dir string                       Folder where the policy files should be written
+  -f, --force                            Overwrite existing files
+  -h, --help                             help for save
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -r, --release-version string           ocp version for which the policies should be downloaded
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl jira
+
+Provides a set of commands for interacting with Jira
+
+```
+osdctl jira [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for jira
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl jira create-handover-announcement
+
+
+Create a new Handover announcement for SREPHOA Project. To fill the fields, use the following instructions:
+
+1. Cluster ID
+	- If a specific cluster is affected, enter the ID (internal or external).
+	- If not applicable: enter None, N/A, or All for fleet-wide impact.
+
+2. Customer Name 	
+	- Use the exact name from the output of the command you ran. Do not modify or abbreviate. Copy-paste exactly.
+	- If not applicable: enter None or N/A
+	Note : To find the Customer Name you can get it from ocm describe cluster | grep -i organization or run the following command ocm get $(ocm get $(ocm get cluster $CLUSTER_ID  | jq -r .subscription.href) | jq -r '.creator.href') |  jq -r '.organization.name'
+
+3. Version
+Use the Openshift version number in the format:
+	- 4.16 if it affects entire Y-stream versions
+	- 4.16.5 if it affects a specific version
+
+4. Product Type
+Select the appropriate product type:
+	- Choose Multiple if it affects the fleet
+	- Otherwise, select the specific product involved
+
+5. Description - Add a brief description of the announcement.
+
+```
+osdctl jira create-handover-announcement [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   Cluster ID
+      --context string                   The name of the kubeconfig context to use
+      --customer string                  Customer name
+      --description string               Enter Description for the Announcment
+  -h, --help                             help for create-handover-announcement
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --products string                  Comma-separated list of products (e.g. 'Product A,Product B')
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --summary string                   Enter Summary/Title for the Announcment
+      --version string                   Affected Openshift Version (e.g 4.16 or 4.15.32)
+```
+
+### osdctl jira quick-task
+
+Creates a new ticket with the given name and a label specified by "jira_team_label" from the osdctl config. The flags "jira_board_id" and "jira_team" are also required for running this command.
+The ticket will be assigned to the caller and added to their team's current sprint as an OSD Task.
+A link to the created ticket will be printed to the console.
+
+```
+osdctl jira quick-task <title> [flags]
+```
+
+#### Flags
+
+```
+      --add-to-sprint                    whether or not to add the created Jira task to the SRE's current sprint.
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for quick-task
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl jumphost
+
+```
+osdctl jumphost [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for jumphost
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl jumphost create
+
+Create a jumphost for emergency SSH access to a cluster's VMs'
+
+  This command automates the process of creating a jumphost in order to gain SSH
+  access to a cluster's EC2 instances and should generally only be used as a last
+  resort when the cluster's API server is otherwise inaccessible. It requires valid
+  AWS credentials to be already set and a subnet ID in the associated AWS account.
+  The provided subnet ID must be a public subnet.
+
+  When the cluster's API server is accessible, prefer "oc debug node".
+
+  Requires these permissions:
+  {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Action": [
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:CreateKeyPair",
+          "ec2:CreateSecurityGroup",
+          "ec2:CreateTags",
+          "ec2:DeleteKeyPair",
+          "ec2:DeleteSecurityGroup",
+          "ec2:DescribeImages",
+          "ec2:DescribeInstances",
+          "ec2:DescribeKeyPairs",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeSubnets",
+          "ec2:RunInstances",
+          "ec2:TerminateInstances"
+        ],
+        "Effect": "Allow",
+        "Resource": "*"
+      }
+    ]
+  }
+
+```
+osdctl jumphost create [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for create
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --subnet-id string                 public subnet id to create a jumphost in
+```
+
+### osdctl jumphost delete
+
+Delete a jumphost created by "osdctl jumphost create"
+
+  This command cleans up AWS resources created by "osdctl jumphost create" if it
+  fails the customer should be notified as there will be leftover AWS resources
+  in their account. This command is idempotent and safe to run over and over.
+
+  Requires these permissions:
+  {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Action": [
+          "ec2:AuthorizeSecurityGroupIngress",
+          "ec2:CreateKeyPair",
+          "ec2:CreateSecurityGroup",
+          "ec2:CreateTags",
+          "ec2:DeleteKeyPair",
+          "ec2:DeleteSecurityGroup",
+          "ec2:DescribeImages",
+          "ec2:DescribeInstances",
+          "ec2:DescribeKeyPairs",
+          "ec2:DescribeSecurityGroups",
+          "ec2:DescribeSubnets",
+          "ec2:RunInstances",
+          "ec2:TerminateInstances"
+        ],
+        "Effect": "Allow",
+        "Resource": "*"
+      }
+    ]
+  }
+
+```
+osdctl jumphost delete [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for delete
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --subnet-id string                 subnet id to search for and delete a jumphost in
+```
+
+### osdctl mc
+
+```
+osdctl mc [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for mc
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl mc list
+
+List ROSA HCP Management Clusters.
+
+```
+osdctl mc list [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for list
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --output string                    Output format. Supported output formats include: table, text, json, yaml (default "table")
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl network
+
+network related utilities
+
+```
+osdctl network [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for network
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl network packet-capture
+
+Start packet capture
+
+```
+osdctl network packet-capture [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -d, --duration int                     Duration (in seconds) of packet capture (default 60)
+  -h, --help                             help for packet-capture
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --name string                      Name of Daemonset (default "sre-packet-capture")
+  -n, --namespace string                 Namespace to deploy Daemonset (default "default")
+      --node-label-key string            Node label key (default "node-role.kubernetes.io/worker")
+      --node-label-value string          Node label value
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --reason string                    The reason for this command, which requires elevation, to be run (usualy an OHSS or PD ticket)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --single-pod                       toggle deployment as single pod (default: deploy a daemonset)
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl network verify-egress
+
+Verify an AWS OSD/ROSA cluster can reach all required external URLs necessary for full support.
+
+  This command is an opinionated wrapper around running https://github.com/openshift/osd-network-verifier for SREs.
+  Given an OCM cluster name or id, this command will attempt to automatically detect the security group, subnet, and
+  cluster-wide proxy configuration to run osd-network-verifier's egress verification. The purpose of this check is to
+  verify whether a ROSA cluster's VPC allows for all required external URLs are reachable. The exact cause can vary and
+  typically requires a customer to remediate the issue themselves.
+
+  The osd-network-verifier supports two modes:
+  1. Traditional mode: launches a probe instance in a given subnet and checks egress to external required URLs.
+     Since October 2022, the probe is an instance without a public IP address. For this reason, the probe's requests
+     will fail for subnets that don't have a NAT gateway. This mode will always fail and give a false negative for
+     public subnets (in non-privatelink clusters), since they have an internet gateway and no NAT gateway.
+  2. Pod mode (--pod-mode): runs verification as Kubernetes Jobs within the target cluster. This mode requires
+     cluster admin access but provides more accurate results as it tests from within the actual cluster environment.
+     
+     Pod mode uses the following Kubernetes client configuration priority:
+     1. In-cluster configuration (when ServiceAccount token exists)
+     2. Backplane credentials (when --cluster-id is provided)
+     3. User-provided kubeconfig (when --kubeconfig is specified)
+     4. Default kubeconfig (from ~/.kube/config)
+
+  Docs: https://docs.openshift.com/rosa/rosa_install_access_delete_clusters/rosa_getting_started_iam/rosa-aws-prereqs.html#osd-aws-privatelink-firewall-prerequisites_prerequisites
+
+```
+osdctl network verify-egress [flags]
+```
+
+#### Flags
+
+```
+  -A, --all-subnets                      (optional) an option for AWS Privatelink clusters to run osd-network-verifier against all subnets listed by ocm.
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cacert string                    (optional) path to a file containing the additional CA trust bundle. Typically set so that the verifier can use a configured cluster-wide proxy.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                (optional) OCM internal/external cluster id to run osd-network-verifier against.
+      --context string                   The name of the kubeconfig context to use
+      --cpu-arch string                  (optional) compute instance CPU architecture. E.g., 'x86' or 'arm' (default "x86")
+      --debug                            (optional) if provided, enable additional debug-level logging
+      --egress-timeout duration          (optional) timeout for individual egress verification requests (default 5s)
+      --gcp-project-id string            (optional) the GCP project ID to run verification for
+  -h, --help                             help for verify-egress
+      --hive-ocm-url string              (optional) OCM environment URL for hive operations. Aliases: 'production', 'staging', 'integration'. If not specified, uses the same OCM environment as the target cluster.
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                (optional) path to kubeconfig file for pod mode (uses default kubeconfig if not specified)
+      --namespace string                 (optional) Kubernetes namespace to run verification pods in (default "openshift-network-diagnostics")
+      --no-tls                           (optional) if provided, ignore all ssl certificate validations on client-side.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --platform string                  (optional) override for cloud platform/product. E.g., 'aws-classic' (OSD/ROSA Classic), 'aws-hcp' (ROSA HCP), 'aws-hcp-zeroegress', 'aws-govcloud-classic' (AWS GovCloud), or 'gcp-classic'
+      --pod-mode                         (optional) run verification using Kubernetes pods instead of cloud instances
+      --probe string                     (optional) select the probe to be used for egress testing. Either 'curl' (default) or 'legacy' (default "curl")
+      --reason string                    (required for pod mode with --cluster-id) The reason for elevation to perform write operations (usually an OHSS or PD ticket)
+      --region string                    (optional) AWS region, required for --pod-mode if not passing a --cluster-id
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+      --security-group string            (optional) security group ID override for osd-network-verifier, required if not specifying --cluster-id
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+      --skip-service-log                 (optional) disable automatic service log sending when verification fails
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+      --subnet-id stringArray            (optional) private subnet ID override, required if not specifying --cluster-id and can be specified multiple times to run against multiple subnets
+      --version                          When present, prints out the version of osd-network-verifier being used
+      --vpc string                       (optional) VPC name for cases where it can't be fetched from OCM
+```
+
+### osdctl org
+
+Provides information for a specified organization
+
+```
+osdctl org [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for org
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl org aws-accounts
+
+get organization AWS Accounts
+
+```
+osdctl org aws-accounts [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -p, --aws-profile string               specify AWS profile
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for aws-accounts
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+      --ou-id string                     specify organization unit id
+  -o, --output string                    valid output formats are ['', 'json']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl org clusters
+
+By default, returns all active clusters for a given organization. The organization can either be specified with an argument
+passed in, or by providing both the --aws-profile and --aws-account-id flags. You can request all clusters regardless of status by providing the --all flag.
+
+```
+osdctl org clusters [flags]
+```
+
+#### Flags
+
+```
+  -A, --all                              get all clusters regardless of status
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+  -a, --aws-account-id string            specify AWS Account Id
+  -p, --aws-profile string               specify AWS profile
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for clusters
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    valid output formats are ['', 'json']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl org context
+
+Fetches information about the given organization. This data is presented as a table where each row includes the name, version, ID, cloud provider, and plan for the cluster. Rows will also include the number of recent service logs, active PD Alerts, Jira Issues, and limited support status for that specific cluster.
+
+```
+osdctl org context orgId [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for context
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    output format for the results. only supported value currently is 'json'
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl org current
+
+gets current organization
+
+```
+osdctl org current [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for current
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    valid output formats are ['', 'json']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl org customers
+
+get paying/non-paying organizations
+
+```
+osdctl org customers [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for customers
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    valid output formats are ['', 'json']
+      --paying                           get organization based on paying status (default true)
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl org describe
+
+describe organization
+
+```
+osdctl org describe [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for describe
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    valid output formats are ['', 'json']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl org get
+
+get organization by users
+
+```
+osdctl org get [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+      --ebs-id string                    search organization by ebs account id 
+  -h, --help                             help for get
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    valid output formats are ['', 'json']
+      --part-match                       Part matching user name
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+  -u, --user string                      search organization by user name 
+```
+
+### osdctl org labels
+
+get organization labels
+
+```
+osdctl org labels [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for labels
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    valid output formats are ['', 'json']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl org users
+
+get organization users
+
+```
+osdctl org users [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for users
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    valid output formats are ['', 'json']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl promote
+
+Utilities to promote services/operators
+
+```
+osdctl promote [flags]
+```
+
+#### Flags
+
+```
+  -h, --help                 help for promote
+  -S, --skip-version-check   skip checking to see if this is the most recent release
+```
+
+### osdctl promote block
+
+Add a SHA commit hash to the blockedVersions list for a code component
+in the application's app.yaml file. This prevents the specified version
+from being promoted through progressive delivery.
+
+The command locates the app.yaml through the SaaS service file, finds
+the specified component by name, and appends the git hash to its
+codeComponents[].blockedVersions array. If the blockedVersions field
+does not yet exist, it will be created.
+
+Duplicate entries are rejected with an error.
+
+```
+osdctl promote block [flags]
+```
+
+#### Flags
+
+```
+  -a, --all                      Block the version for all components of the service (mutually exclusive with --component)
+      --appInterfaceDir string   Location of app-interface checkout. Falls back to the current working directory
+  -c, --component string         Name of the code component in app.yaml
+  -g, --gitHash string           SHA commit hash to add to blockedVersions
+  -h, --help                     help for block
+  -l, --list                     List all services and their components
+      --serviceId string         Name of the SaaS service file (without extension)
+  -S, --skip-version-check       skip checking to see if this is the most recent release
+```
+
+### osdctl promote dynatrace
+
+Promote Dynatrace components or terraform modules.
+
+DYNATRACE COMPONENTS:
+  Components are defined in app-interface under:
+    data/services/osd-operators/cicd/saas/saas-dynatrace/
+
+  Each component maps to a specific path within the dynatrace-config repository.
+  When promoting a component, only changes to that component's path are included
+  in the promotion diff.
+
+  Please run 'osdctl promote dynatrace --list' to check available dynatrace components for promotion & their corresponding paths.
+
+TERRAFORM MODULES:
+  Modules are defined in the dynatrace-config repository under:
+    terraform/modules/
+
+  Promoting a module updates configs in:
+    terraform/redhat-aws/sd-sre/
+
+```
+osdctl promote dynatrace [flags]
+```
+
+#### Flags
+
+```
+      --appInterfaceDir string      Location of app-interface checkout. Falls back to current working directory
+  -c, --component string            Dynatrace component getting promoted (ex: dynatrace-dynakube)
+      --dynatraceConfigDir string   Location of dynatrace-config checkout. Falls back to current working directory
+  -g, --gitHash string              Git hash of the component getting promoted from dynatrace-config repo
+  -h, --help                        help for dynatrace
+  -l, --list                        List all SaaS services/operators
+  -m, --module string               Module to promote
+  -S, --skip-version-check          skip checking to see if this is the most recent release
+  -t, --terraform                   Deploy dynatrace-config terraform job
+```
+
+### osdctl promote managedscripts
+
+Promote https://github.com/openshift/managed-scripts
+
+```
+osdctl promote managedscripts [flags]
+```
+
+#### Flags
+
+```
+      --appInterfaceDir string   location of app-interface checkout. Falls back to current working directory
+  -g, --gitHash string           Git hash of the managed-scripts repo commit getting promoted
+  -h, --help                     help for managedscripts
+  -S, --skip-version-check       skip checking to see if this is the most recent release
+```
+
+### osdctl promote rhobs
+
+Promote RHOBS configuration to production
+
+```
+osdctl promote rhobs [flags]
+```
+
+#### Flags
+
+```
+      --appInterfaceDir string   Location of app-interface checkout
+      --configRepoDir string     Location of rhobs/configuration checkout (auto-detected from ~/src/)
+  -g, --gitHash string           Git hash of rhobs/configuration to promote to (required for bulk promotion; defaults to HEAD for --serviceId)
+  -h, --help                     help for rhobs
+      --latest                   Promote all services to the latest rhobs/configuration origin/main HEAD
+  -l, --list                     List all RHOBS SaaS file names
+      --serviceId string         Name of the SaaS file (without extension)
+  -S, --skip-version-check       skip checking to see if this is the most recent release
+```
+
+### osdctl promote saas
+
+Utilities to promote SaaS services/operators
+
+```
+osdctl promote saas [flags]
+```
+
+#### Flags
+
+```
+      --appInterfaceDir string   Location of app-interface checkout. Falls back to the current working directory
+  -g, --gitHash string           Git hash of the repo described by the SaaS file to promote to
+  -h, --help                     help for saas
+      --hotfix                   Add gitHash to hotfixVersions in app.yml to bypass progressive delivery (requires --gitHash)
+  -l, --list                     List all SaaS file names (without the extension)
+  -n, --namespaceRef string      SaaS target namespace reference name
+      --serviceId string         Name of the SaaS file (without the extension)
+  -S, --skip-version-check       skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs
+
+RHOBS.next related utilities.
+
+For headless automation, have the trusted launcher inject RHOBS_CLIENT_ID and
+RHOBS_CLIENT_SECRET into the osdctl process environment from your secret manager.
+
+Alternatively, set rhobs_client_id and rhobs_client_secret in ~/.config/osdctl:
+  rhobs_client_id: "<client-id>"
+  rhobs_client_secret: "<client-secret>"
+Restrict access to this file (for example, chmod 600 ~/.config/osdctl).
+
+Each environment variable overrides its corresponding config value. An explicitly
+empty environment variable returns an error instead of falling back to config.
+A complete pair bypasses Vault; an incomplete pair returns an error. Vault is
+used only when neither credential is supplied. Direct credentials apply to all
+RHOBS environments queried by the process; supply the pair for your target environment.
+
+Keep secret values out of agent prompts, tool calls, and shell tracing.
+Environment variables remain accessible to the receiving process and may be
+inherited by child processes.
+
+```
+osdctl rhobs [flags]
+```
+
+#### Flags
+
+```
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -h, --help                  help for rhobs
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs alerts
+
+List or silence RHOBS alerts
+
+```
+osdctl rhobs alerts [flags]
+```
+
+#### Flags
+
+```
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -h, --help                  help for alerts
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs alerts get
+
+List alerts from RHOBS for a given cluster
+
+```
+osdctl rhobs alerts get [flags]
+```
+
+#### Flags
+
+```
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -f, --filter                Only keep the results matching the given cluster - only effective if some of those results have a _id, _mc_id or mc_name label
+  -h, --help                  help for get
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -o, --output string         Format of the output - allowed values: "text", "csv" or "json" (default "text")
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs alerts prom-rules
+
+The Prometheus rules (alerts & recording rules) defined on the RHOBS cell
+
+```
+osdctl rhobs alerts prom-rules [flags]
+```
+
+#### Flags
+
+```
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -h, --help                  help for prom-rules
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs alerts prom-rules get
+
+List the Prometheus rules defined on the RHOBS cell
+
+```
+osdctl rhobs alerts prom-rules get [flags]
+```
+
+#### Flags
+
+```
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -h, --help                  help for get
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs alerts silences
+
+The alerts silences defined at RHOBS cell level
+
+```
+osdctl rhobs alerts silences [flags]
+```
+
+#### Flags
+
+```
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -h, --help                  help for silences
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs alerts silences create
+
+Create a silence at RHOBS cell level. The mandatory selector argument filters the alerts on which the silence will apply; Use ==, !=, =~ and !~ as an operator between a label key and its value; for instance: key1=value1,key2!=value2; Use a comma to separate the constraints if more than one or repeat this argument: key1==value1 key2!=value2; Special characters (like the ones used in operators) need to be back-slashed if present in a key or, more likely, in a value; same applies to the backslash character itself.
+
+```
+osdctl rhobs alerts silences create selector [flags]
+```
+
+#### Flags
+
+```
+      --author string           Name of the person creating the silence (default to the OS user name)
+  -C, --cluster-id string       Name or Internal ID of the cluster (defaults to current cluster context)
+      --comment string          Some free text giving some context around why the silence is created - you can give JIRA or other references there
+      --end-time time           Time at which the silence will expire - Mandatory unless --expire-after is set
+      --expire-after duration   Duration (e.g. 24h, 30m) after which the silence will expire - exclusive with --start-time & --end-time
+  -h, --help                    help for create
+      --hive-ocm-url string     OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -S, --skip-version-check      skip checking to see if this is the most recent release
+      --start-time time         Time at which the silence will start to take effect (defaults to now)
+```
+
+### osdctl rhobs alerts silences delete
+
+Expire the given silence from the RHOBS cell
+
+```
+osdctl rhobs alerts silences delete [silence-id] [flags]
+```
+
+#### Flags
+
+```
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -h, --help                  help for delete
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs alerts silences get
+
+List RHOBS cell silences
+
+```
+osdctl rhobs alerts silences get [flags]
+```
+
+#### Flags
+
+```
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -h, --help                  help for get
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs cell
+
+Get the RHOBS cell for a given cluster
+
+```
+osdctl rhobs cell [flags]
+```
+
+#### Flags
+
+```
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -h, --help                  help for cell
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs hcp-dashboard
+
+Get the HCP dashboard URL for a given HCP cluster. The dashboard name is optional and defaults to the hosted cluster dashboard. Allowed values for the dashboard name are: hosted-cluster, management-cluster, kube-apis-slo, clusters-creation-slo, control-planes-upgrade-slo, nodepools-upgrade-slo, nodepools-slo, counters. The URL of the RHOBS cell(s) to use can be specified with the --rhobs-cell option, but it is usually more convenient to specify the cluster with the --cluster-id option and let the command figure out the RHOBS cell(s) to use. Note that the --rhobs-cell option is not working with all dashboards and cannot be used together with the --cluster-id option.
+
+```
+osdctl rhobs hcp-dashboard [dashboard-name] [flags]
+```
+
+#### Flags
+
+```
+  -b, --browser               Open in the URL in the default browser
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -h, --help                  help for hcp-dashboard
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -c, --rhobs-cell string     RHOBS cell URL - for instance: https://us-east-1-0.rhobs.api.stage.openshift.com - use a comma to separate the RHOBS cell to use for metrics from the logs RHOBS cell if they are different - this option is not working with all dashboards - exclusive with --cluster-id
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs logs
+
+Fetch logs from RHOBS for a given cluster or RHOBS cell. The cluster can be a management cluster (MC) or whatever cluster sending logs to RHOBS; the command works as if the management cluster ID was passed if given a hosted cluster (HCP) ID. Alternatively, use --rhobs-cell to query a specific RHOBS cell directly without a cluster ID (useful for app-sre services like Clusters Service that send logs to the global cell). By default, logs from all the pods in the given namespace are returned but it is possible to specify a single pod as an argument or filter pods using their labels. Logs themselves can be also filtered to only keep the ones containing a given regexp (--contain-regex option) or a given log level (--level option).
+
+```
+osdctl rhobs logs [pod] [flags]
+```
+
+#### Flags
+
+```
+  -b, --browser                         Open in the default browser the URL computed with the --url option - only applicable if --url is set
+  -C, --cluster-id string               Name or Internal ID of the cluster (defaults to current cluster context)
+      --contain stringArray             Text the log message must contain - flag can be repeated
+      --contain-regex stringArray       Regular expression the log message must contain - flag can be repeated
+  -c, --container string                Name of the container - print all containers logs if not specified
+      --dedupe                          Collapse consecutive identical log lines into a single line followed by a "... repeated Nx ..." marker - identity is the message plus --field values (timestamps ignored) - only supported with the text output format - exclusive with --url
+      --direction string                Direction of the logs to return - allowed values: "forward" or "backward" - "backward" returns the most recent & interesting logs first, while "forward" matches the behavior of "kubectl logs" by returning the oldest logs first (default to "backward" unless --follow is set in which case it is forced to "forward")
+      --end-time time                   End time for the logs (default to now)
+      --field strings                   Fields to print with the log message - not possible with the "json" output format - flag can be repeated / values can also be aggregated with one flag using the comma as separator - possible values: "k8s_namespace_name", "k8s_pod_name", "k8s_container_name" - use the "json" output format to know about all possible fields - exclusive with --url (default [k8s_pod_name])
+  -f, --follow                          Specify if the logs should be streamed - exclusive with --url, --start-time, --end-time, --since, --direction, --limit and --no-limit flags
+  -h, --help                            help for logs
+      --hive-ocm-url string             OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+      --include-events                  Include events in the logs output - may add significant noise, use with caution
+      --level strings                   Log level to retain - allowed values: "default", "trace", "info", "warn", "error" - flag can be repeated / values can also be aggregated with one flag using the comma as separator
+      --limit int                       Maximum number of logs to return - allowed range: [1 100000] - exclusive with --no-limit, --url & --follow flags (default to 10000, no limit if --follow is set)
+  -n, --namespace string                Name of the namespace (default "default")
+      --no-limit                        Do not limit the number of logs to return - exclusive with --limit, --url & --follow flags
+      --not-contain stringArray         Text the log message must not contain - flag can be repeated
+      --not-contain-regex stringArray   Regular expression the log message must not contain - flag can be repeated
+  -o, --output string                   Format of the output - allowed values: "text", "csv" or "json" - exclusive with --url (default "text")
+  -q, --query string                    LogQL expression - exclusive with many other flags
+      --rhobs-cell string               RHOBS cell URL (e.g., https://us-east-1-0.rhobs.api.stage.openshift.com) - query logs directly without a cluster ID - exclusive with --cluster-id
+  -l, --selector string                 Label selector for filtering pods - exclusive with the pod argument
+      --since duration                  Only return logs newer than a relative duration (e.g. 1h, 30m) - exclusive with --start-time & --end-time
+  -S, --skip-version-check              skip checking to see if this is the most recent release
+      --start-time time                 Start time for the logs - alternate alias: --since-time (default to 5 minutes ago)
+      --ts                              Print metadata timestamps - to be used when log messages do not have a timestamp - not possible with the "json" output format - exclusive with --url
+  -u, --url                             Only compute and print the grafana URL
+```
+
+### osdctl rhobs mcp
+
+MCP (Model Context Protocol) server that exposes RHOBS metrics, logs,
+and alerts querying as tools for AI agents.
+
+Compatible with any MCP client (Claude Code, Cursor, Windsurf, custom agents).
+
+Subcommands:
+  server    Start the stdio MCP server
+  config    Print MCP client configuration JSON
+
+Quick start:
+  claude --mcp-config "$(osdctl rhobs mcp config)"
+
+Prerequisites:
+  - OCM login: ocm login --use-auth-code --url <environment>
+  - RHOBS credentials: resolve each value from RHOBS_CLIENT_ID/RHOBS_CLIENT_SECRET,
+    then rhobs_client_id/rhobs_client_secret in ~/.config/osdctl.
+    A complete pair bypasses Vault; an incomplete pair or explicitly empty
+    environment variable returns an error.
+  - Vault fallback (when neither credential resolves): configure rhobs_<env>_vault_path
+    in ~/.config/osdctl and log in with VAULT_ADDR=https://vault.devshift.net vault login -method=oidc
+
+```
+osdctl rhobs mcp [flags]
+```
+
+#### Flags
+
+```
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -h, --help                  help for mcp
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs mcp config
+
+Print MCP client configuration JSON for use with AI agents.
+
+Usage with Claude Code:
+  claude --mcp-config "$(osdctl rhobs mcp config)"
+
+Or add to ~/.claude/mcp_settings.json manually.
+
+```
+osdctl rhobs mcp config [flags]
+```
+
+#### Flags
+
+```
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -h, --help                  help for config
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs mcp server
+
+Start the RHOBS MCP server
+
+```
+osdctl rhobs mcp server [flags]
+```
+
+#### Flags
+
+```
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+  -h, --help                  help for server
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+```
+
+### osdctl rhobs metrics
+
+Fetch metrics from RHOBS for a given cluster. The cluster can be a hosted cluster (HCP), a management cluster (MC) or whatever cluster sending metrics to RHOBS. The prometheus expression provided as an argument can be either an instant query or a range query; it is optional if the --url option is set. By default, the command will try to evaluate the expression as an instant query at the current time, but it is possible to specify a different evaluation time using the --time option or a time range using the --start-time, --end-time and --since options. Results can be filtered to only keep the ones matching the given cluster (--cluster-id option) with the --filter option even if it is more efficient to do that filtering at the prometheus expression level.
+
+```
+osdctl rhobs metrics [PromQL-expression] [flags]
+```
+
+#### Flags
+
+```
+  -b, --browser               Open in the default browser the URL computed with the --url option - only applicable if --url is set
+  -C, --cluster-id string     Name or Internal ID of the cluster (defaults to current cluster context)
+      --end-time time         End time at which the PromQL expression must be evaluated - can only be set if --start-time or --url is set (default to now)
+  -f, --filter                Only keep the results matching the given cluster - only effective if some of those results have a _id, _mc_id or mc_name label - exclusive with --url
+  -h, --help                  help for metrics
+      --hive-ocm-url string   OCM environment URL for hive operations - aliases: "production", "staging", "integration" (default "production")
+  -o, --output string         Format of the output - allowed values: "table", "csv" or "json" - "json" prints raw API data and as such is forward compatible - exclusive with --url (default "table")
+      --since duration        Only return values newer than a relative duration (e.g. 1h, 30m) - enable time range mode - exclusive with --time, --start-time & --end-time
+  -S, --skip-version-check    skip checking to see if this is the most recent release
+      --start-time time       Start time at which the PromQL expression must be evaluated - enable time range mode - exclusive with --time (default to 30 minutes ago)
+      --step duration         Duration between data points (e.g. 30s, 2m) - can only be set if in time range mode (i.e. --start-time or --since is set)
+      --time time             Time at which the PromQL expression must be evaluated - exclusive with --url (default to now)
+  -u, --url                   Only compute and print the grafana URL
+```
+
+### osdctl servicelog
+
+OCM/Hive Service log
+
+```
+osdctl servicelog [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for servicelog
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl servicelog list
+
+Get service logs for a given cluster identifier.
+
+```
+osdctl servicelog list --cluster-id <cluster-identifier> [flags] [options]
+```
+
+#### Flags
+
+```
+  -A, --all-messages                     Toggle if we should see all of the messages or only SRE-P specific ones
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal Cluster identifier (required)
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for list
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+  -i, --internal                         Toggle if we should see internal messages
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl servicelog post
+
+Post a service log to a cluster or list of clusters
+
+  Docs: https://docs.openshift.com/rosa/logging/sd-accessing-the-service-logs.html
+
+```
+osdctl servicelog post --cluster-id <cluster-identifier> [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+  -C, --cluster-id string                Internal ID of the cluster to post the service log to
+  -c, --clusters-file string             Read a list of clusters to post the servicelog to. the format of the file is: {"clusters":["$CLUSTERID"]}
+      --context string                   The name of the kubeconfig context to use
+  -d, --dry-run                          Dry-run - print the service log about to be sent but don't send it.
+  -h, --help                             help for post
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+  -i, --internal                         Internal only service log. Use MESSAGE for template parameter (eg. -p MESSAGE='My super secret message').
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+  -r, --override Info                    Specify a key-value pair (eg. -r FOO=BAR) to replace a JSON key in the document, only supports string fields, specifying -r without -t or -i will use a default template with severity Info and internal_only=True unless these are also overridden.
+  -p, --param stringArray                Specify a key-value pair (eg. -p FOO=BAR) to set/override a parameter value in the template.
+  -q, --query stringArray                Specify a search query (eg. -q "name like foo") for a bulk-post to matching clusters.
+  -f, --query-file stringArray           File containing search queries to apply. All lines in the file will be concatenated into a single query. If this flag is called multiple times, every file's search query will be combined with logical AND.
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+      --skip-link-check                  Skip validating if links in Service Log are valid
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+  -t, --template string                  Message template file or URL
+  -y, --yes                              Skips all prompts.
+```
+
+### osdctl setup
+
+Setup the configuration
+
+```
+osdctl setup [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for setup
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl swarm
+
+Provides a set of commands for swarming activity
+
+```
+osdctl swarm [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for swarm
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl swarm secondary
+
+Lists unassigned Jira issues from the 'OHSS' project
+		for the following Products
+		- OpenShift Dedicated
+		- Openshift Online Pro
+		- OpenShift Online Starter
+		- Red Hat OpenShift Service on AWS
+		- HyperShift Preview
+		- Empty 'Products' field in Jira
+		with the 'Summary' field  of the new ticket not matching the following
+		- Compliance Alert
+		and the 'Work Type' is not one of the RFE or Change Request 
+
+```
+osdctl swarm secondary [flags]
+```
+
+#### Flags
+
+```
+      --as string                        Username to impersonate for the operation. User could be a regular user or a service account in a namespace.
+      --cluster string                   The name of the kubeconfig cluster to use
+      --context string                   The name of the kubeconfig context to use
+  -h, --help                             help for secondary
+      --insecure-skip-tls-verify         If true, the server's certificate will not be checked for validity. This will make your HTTPS connections insecure
+      --kubeconfig string                Path to the kubeconfig file to use for CLI requests.
+  -o, --output string                    Valid formats are ['', 'json', 'yaml', 'env']
+      --request-timeout string           The length of time to wait before giving up on a single server request. Non-zero values should contain a corresponding time unit (e.g. 1s, 2m, 3h). A value of zero means don't timeout requests. (default "0")
+  -s, --server string                    The address and port of the Kubernetes API server
+      --skip-aws-proxy-check aws_proxy   Don't use the configured aws_proxy value
+  -S, --skip-version-check               skip checking to see if this is the most recent release
+```
+
+### osdctl upgrade
+
+Fetch latest osdctl from GitHub and replace the running binary
+
+```
+osdctl upgrade [flags]
+```
+
+#### Flags
+
+```
+  -h, --help                 help for upgrade
+  -S, --skip-version-check   skip checking to see if this is the most recent release
+```
+
+### osdctl version
+
+Display version of osdctl
+
+```
+osdctl version [flags]
+```
+
+#### Flags
+
+```
+  -h, --help                 help for version
+  -S, --skip-version-check   skip checking to see if this is the most recent release
+```
+

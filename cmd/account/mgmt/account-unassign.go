@@ -6,10 +6,12 @@ import (
 	"os"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/iam"
-	"github.com/aws/aws-sdk-go/service/organizations"
-	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
+	awsSdk "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/organizations"
+	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
+	resourceGroupsTaggingApiTypes "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi/types"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/openshift/osdctl/pkg/printer"
 	awsprovider "github.com/openshift/osdctl/pkg/provider/aws"
 	"github.com/spf13/cobra"
@@ -17,8 +19,12 @@ import (
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 )
 
-func newCmdAccountUnassign(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *cobra.Command {
-	ops := newAccountUnassignOptions(streams, flags)
+const (
+	OSDStaging2RootID = "r-rs3h"
+)
+
+func newCmdAccountUnassign(streams genericclioptions.IOStreams) *cobra.Command {
+	ops := newAccountUnassignOptions(streams)
 	accountUnassignCmd := &cobra.Command{
 		Use:               "unassign",
 		Short:             "Unassign account to user",
@@ -32,7 +38,6 @@ func newCmdAccountUnassign(streams genericclioptions.IOStreams, flags *genericcl
 	accountUnassignCmd.Flags().StringVarP(&ops.payerAccount, "payer-account", "p", "", "Payer account type")
 	accountUnassignCmd.Flags().StringVarP(&ops.username, "username", "u", "", "LDAP username")
 	accountUnassignCmd.Flags().StringVarP(&ops.accountID, "account-id", "i", "", "Account ID")
-
 	return accountUnassignCmd
 }
 
@@ -41,37 +46,32 @@ type accountUnassignOptions struct {
 	username     string
 	payerAccount string
 	accountID    string
-
-	flags      *genericclioptions.ConfigFlags
-	printFlags *printer.PrintFlags
+	printFlags   *printer.PrintFlags
 	genericclioptions.IOStreams
 }
 
-func newAccountUnassignOptions(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *accountUnassignOptions {
+func newAccountUnassignOptions(streams genericclioptions.IOStreams) *accountUnassignOptions {
 	return &accountUnassignOptions{
-		flags:      flags,
 		printFlags: printer.NewPrintFlags(),
 		IOStreams:  streams,
 	}
 }
-
 func (o *accountUnassignOptions) complete(cmd *cobra.Command, _ []string) error {
-	if o.payerAccount == "" {
-		return cmdutil.UsageErrorf(cmd, "Payer account was not provided")
-	}
 	if o.username == "" && o.accountID == "" {
 		return cmdutil.UsageErrorf(cmd, "Please provide either an username or account ID")
 	}
+	if o.username != "" && o.accountID != "" {
+		return cmdutil.UsageErrorf(cmd, "Please provider only a username or an account ID, not both.")
+	}
 	return nil
 }
-
 func (o *accountUnassignOptions) run() error {
-
 	var (
-		accountUsername string
-		accountIdList   []string
-		destinationOU   string
-		rootID          string
+		accountUsername      string
+		accountIdList        []string
+		rootID               string
+		assumedRoleAwsClient awsprovider.Client
+		allUsers             []string
 	)
 
 	// Instantiate Aws client
@@ -79,13 +79,10 @@ func (o *accountUnassignOptions) run() error {
 	if err != nil {
 		return err
 	}
-
-	if o.payerAccount == "osd-staging-1" {
+	if o.payerAccount == osdStaging1 || os.Getenv(envKeyAWSAccountName) == osdStaging1 {
 		rootID = OSDStaging1RootID
-		destinationOU = OSDStaging1OuID
-	} else if o.payerAccount == "osd-staging-2" {
+	} else if o.payerAccount == osdStaging2 || os.Getenv(envKeyAWSAccountName) == osdStaging2 {
 		rootID = OSDStaging2RootID
-		destinationOU = OSDStaging2OuID
 	} else {
 		return fmt.Errorf("invalid payer account provided")
 	}
@@ -93,22 +90,23 @@ func (o *accountUnassignOptions) run() error {
 	o.awsClient = awsClient
 
 	if o.accountID != "" {
-
+		// Check aws tag to see if it's a ccs acct, if it's not return name of owner
 		accountUsername, err = o.checkForHiveNameTag(o.accountID)
 		if err != nil {
 			return err
 		}
-		accountIdList = append(accountIdList, o.accountID)
 
+		accountIdList = append(accountIdList, o.accountID)
 	}
 
 	if o.username != "" {
-		// Check that username is not a hive
+		// Check that username doesn't belong to a ccs acct
 		if strings.HasPrefix(o.username, "hive") {
 			return ErrHiveNameProvided
 		}
 
 		accountUsername = o.username
+
 		accountIdList, err = o.listAccountsFromUser(accountUsername)
 		if err != nil {
 			return err
@@ -117,12 +115,10 @@ func (o *accountUnassignOptions) run() error {
 
 	fmt.Printf("Are you sure you want to unassign account(s) [%v] from %s? [y/n] ", accountIdList, accountUsername)
 	reader := bufio.NewReader(os.Stdin)
-
 	response, err := reader.ReadString('\n')
 	if err != nil {
 		return err
 	}
-
 	response = strings.ToLower(response[0:1])
 	if response != "y" {
 		os.Exit(0)
@@ -131,58 +127,133 @@ func (o *accountUnassignOptions) run() error {
 	// loop through accounts list and untag and move them back into root OU
 	for _, id := range accountIdList {
 
+		// untag account
 		err = o.untagAccount(id)
 		if err != nil {
 			return err
 		}
 
-		err = o.moveAccount(id, rootID, destinationOU)
+		// move account
+		err = o.moveAccount(id, rootID)
 		if err != nil {
 			return err
 		}
+		// instantiate new client with AssumeRole
+		assumedRoleAwsClient, err = o.assumeRoleForAccount(id)
+		if err != nil {
+			return err
+		}
+		// delete roles
+		err = deleteRoles(assumedRoleAwsClient)
+		if err != nil {
+			fmt.Println(err)
+		}
+		// delete account policies
+		err = deleteAccountPolicies(assumedRoleAwsClient)
+		if err != nil {
+			fmt.Println(err)
+		}
+		// list iam users created by each account and append to slice
+		users, err := listUsersFromAccount(assumedRoleAwsClient)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		allUsers = append(allUsers, users...)
+
+		o.awsClient = assumedRoleAwsClient
 	}
 
-	// Delete login profile
-	err = o.deleteLoginProfile(accountUsername)
-	if err != nil {
-		fmt.Println(err)
-	}
-	// Delete access keys
-	err = o.deleteAccessKeys(accountUsername)
-	if err != nil {
-		fmt.Println(err)
-	}
-	// Delete signing certificates
-	err = o.deleteSigningCert(accountUsername)
-	if err != nil {
-		fmt.Println(err)
-	}
-	// Delete policies
-	err = o.deletePolicies(accountUsername)
-	if err != nil {
-		fmt.Println(err)
-	}
-	// Delete attached policies
-	err = o.deleteAttachedPolicies(accountUsername)
-	if err != nil {
-		fmt.Println(err)
-	}
-	// Delete groups
-	err = o.deleteGroups(accountUsername)
-	if err != nil {
-		fmt.Println(err)
-	}
-	// Delete user
-	err = o.deleteUser(accountUsername)
-	if err != nil {
-		return err
+	for _, userName := range allUsers {
+		// Delete login profile
+		err = o.deleteLoginProfile(userName)
+		if err != nil {
+			fmt.Println(err)
+		}
+		// Delete access keys
+		err = o.deleteAccessKeys(userName)
+		if err != nil {
+			fmt.Println(err)
+		}
+		// Delete signing certificates
+		err = o.deleteSigningCert(userName)
+		if err != nil {
+			fmt.Println(err)
+		}
+		// Delete user policies
+		err = o.deleteUserPolicies(userName)
+		if err != nil {
+			fmt.Println(err)
+		}
+		// Delete attached policies
+		err = o.deleteAttachedPolicies(userName)
+		if err != nil {
+			fmt.Println(err)
+		}
+		// Delete groups
+		err = o.deleteGroups(userName)
+		if err != nil {
+			fmt.Println(err)
+		}
+		// Delete user
+		err = o.deleteUser(userName)
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 
 	return nil
 }
 
-var ErrHiveNameProvided error = fmt.Errorf("hive-managed account provided, only developers account accepted")
-var ErrAccountPartiallyTagged error = fmt.Errorf("account is only partially tagged")
+func (o *accountUnassignOptions) assumeRoleForAccount(accountId string) (awsprovider.Client, error) {
+
+	roleArn := fmt.Sprintf("arn:aws:iam::%s:role/OrganizationAccountAccessRole", accountId)
+
+	input := &sts.AssumeRoleInput{
+		RoleArn:         &roleArn,
+		RoleSessionName: awsSdk.String("osdctl-account-unassignment"),
+	}
+
+	result, err := o.awsClient.AssumeRole(input)
+	if err != nil {
+		return nil, err
+	}
+
+	newAwsClientInput := &awsprovider.ClientInput{
+		AccessKeyID:     *result.Credentials.AccessKeyId,
+		SecretAccessKey: *result.Credentials.SecretAccessKey,
+		SessionToken:    *result.Credentials.SessionToken,
+		Region:          "us-east-1",
+	}
+
+	newAWSClient, err := awsprovider.NewAwsClientWithInput(newAwsClientInput)
+	if err != nil {
+		return nil, err
+	}
+
+	return newAWSClient, nil
+}
+
+func listUsersFromAccount(newAWSClient awsprovider.Client) ([]string, error) {
+
+	listInput := &iam.ListUsersInput{}
+
+	users, err := newAWSClient.ListUsers(listInput)
+	if err != nil {
+		return []string{}, err
+	}
+
+	var userList []string
+
+	for _, u := range users.Users {
+		userList = append(userList, *u.UserName)
+	}
+
+	return userList, nil
+}
+
+var ErrHiveNameProvided = fmt.Errorf("hive-managed account provided, only developers account accepted")
+var ErrAccountPartiallyTagged = fmt.Errorf("account is only partially tagged")
 
 func (o *accountUnassignOptions) checkForHiveNameTag(id string) (string, error) {
 
@@ -210,11 +281,12 @@ func (o *accountUnassignOptions) checkForHiveNameTag(id string) (string, error) 
 }
 
 func (o *accountUnassignOptions) untagAccount(id string) error {
+
 	inputUntag := &organizations.UntagResourceInput{
 		ResourceId: &id,
-		TagKeys: []*string{
-			aws.String("owner"),
-			aws.String("claimed"),
+		TagKeys: []string{
+			"owner",
+			"claimed",
 		},
 	}
 	_, err := o.awsClient.UntagResource(inputUntag)
@@ -224,43 +296,56 @@ func (o *accountUnassignOptions) untagAccount(id string) error {
 	return nil
 }
 
-func (o *accountUnassignOptions) moveAccount(id string, rootID string, destinationOU string) error {
-	inputMove := &organizations.MoveAccountInput{
-		AccountId:           aws.String(id),
-		DestinationParentId: aws.String(rootID),
-		SourceParentId:      aws.String(destinationOU),
+func (o *accountUnassignOptions) moveAccount(id string, rootID string) error {
+	parents, err := o.awsClient.ListParents(&organizations.ListParentsInput{
+		ChildId: &id,
+	})
+	if err != nil {
+		return err
+	}
+	if len(parents.Parents) == 0 || parents.Parents[0].Id == nil {
+		return fmt.Errorf("no parent found for account %s", id)
 	}
 
-	_, err := o.awsClient.MoveAccount(inputMove)
+	sourceOU := *parents.Parents[0].Id
+	if sourceOU == rootID {
+		return nil
+	}
+
+	inputMove := &organizations.MoveAccountInput{
+		AccountId:           &id,
+		DestinationParentId: &rootID,
+		SourceParentId:      &sourceOU,
+	}
+	_, err = o.awsClient.MoveAccount(inputMove)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-var ErrNoAccountsForUser error = fmt.Errorf("user has no aws accounts")
+var ErrNoAccountsForUser = fmt.Errorf("user has no aws accounts")
 
 func (o *accountUnassignOptions) listAccountsFromUser(user string) ([]string, error) {
 
 	inputFilterTag := &resourcegroupstaggingapi.GetResourcesInput{
-		TagFilters: []*resourcegroupstaggingapi.TagFilter{
+		TagFilters: []resourceGroupsTaggingApiTypes.TagFilter{
 			{
-				Key: aws.String("owner"),
-				Values: []*string{
-					aws.String(user),
+				Key: awsSdk.String("owner"),
+				Values: []string{
+					user,
 				},
 			},
 		},
 	}
+
 	accounts, err := o.awsClient.GetResources(inputFilterTag)
 	if err != nil {
 		return []string{}, err
 	}
-
 	if len(accounts.ResourceTagMappingList) == 0 {
 		return []string{}, ErrNoAccountsForUser
 	}
-
 	var accountIdList []string
 	// Get last 12 digits of ResourceARN and append it to account list
 	for _, a := range accounts.ResourceTagMappingList {
@@ -291,9 +376,7 @@ func (o *accountUnassignOptions) deleteAccessKeys(user string) error {
 	if err != nil {
 		return err
 	}
-
 	for _, m := range accessKeys.AccessKeyMetadata {
-
 		inputDelKey := &iam.DeleteAccessKeyInput{
 			AccessKeyId: m.AccessKeyId,
 			UserName:    &user,
@@ -315,7 +398,6 @@ func (o *accountUnassignOptions) deleteSigningCert(user string) error {
 	if err != nil {
 		return err
 	}
-
 	for _, c := range cert.Certificates {
 		inputDelCert := &iam.DeleteSigningCertificateInput{
 			CertificateId: c.CertificateId,
@@ -329,7 +411,8 @@ func (o *accountUnassignOptions) deleteSigningCert(user string) error {
 	return nil
 }
 
-func (o *accountUnassignOptions) deletePolicies(user string) error {
+func (o *accountUnassignOptions) deleteUserPolicies(user string) error {
+
 	inputListPolicies := &iam.ListUserPoliciesInput{
 		UserName: &user,
 	}
@@ -337,10 +420,9 @@ func (o *accountUnassignOptions) deletePolicies(user string) error {
 	if err != nil {
 		return err
 	}
-
 	for _, p := range policies.PolicyNames {
 		inputDelPolicies := &iam.DeleteUserPolicyInput{
-			PolicyName: p,
+			PolicyName: &p,
 			UserName:   &user,
 		}
 		_, err = o.awsClient.DeleteUserPolicy(inputDelPolicies)
@@ -352,6 +434,7 @@ func (o *accountUnassignOptions) deletePolicies(user string) error {
 }
 
 func (o *accountUnassignOptions) deleteAttachedPolicies(user string) error {
+
 	inputListAttachedPol := &iam.ListAttachedUserPoliciesInput{
 		UserName: &user,
 	}
@@ -359,7 +442,6 @@ func (o *accountUnassignOptions) deleteAttachedPolicies(user string) error {
 	if err != nil {
 		return err
 	}
-
 	for _, ap := range attachedPol.AttachedPolicies {
 		inputDetachPol := &iam.DetachUserPolicyInput{
 			PolicyArn: ap.PolicyArn,
@@ -373,6 +455,78 @@ func (o *accountUnassignOptions) deleteAttachedPolicies(user string) error {
 	return nil
 }
 
+func detachRolePolicies(rolename *string, newAWSClient awsprovider.Client) error {
+
+	listRolePolInput := &iam.ListAttachedRolePoliciesInput{
+		RoleName: rolename,
+	}
+	rolePol, err := newAWSClient.ListAttachedRolePolicies(listRolePolInput)
+	if err != nil {
+		return err
+	}
+
+	for _, rp := range rolePol.AttachedPolicies {
+		_, err := newAWSClient.DetachRolePolicy(&iam.DetachRolePolicyInput{
+			PolicyArn: rp.PolicyArn,
+			RoleName:  rolename,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteAccountPolicies(newAWSClient awsprovider.Client) error {
+
+	listAcctPoliciesInput := &iam.ListPoliciesInput{
+		Scope: "Local",
+	}
+
+	policies, err := newAWSClient.ListPolicies(listAcctPoliciesInput)
+	if err != nil {
+		return err
+	}
+
+	for _, pol := range policies.Policies {
+		_, err := newAWSClient.DeletePolicy(&iam.DeletePolicyInput{
+			PolicyArn: pol.Arn,
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func deleteRoles(newAWSClient awsprovider.Client) error {
+
+	listRoleInput := &iam.ListRolesInput{}
+	roles, err := newAWSClient.ListRoles(listRoleInput)
+	if err != nil {
+		return err
+	}
+	// delete all roles except OrganizationAccountAccessRole
+	for _, rolename := range roles.Roles {
+
+		if *rolename.RoleName == "OrganizationAccountAccessRole" || strings.Contains(*rolename.RoleName, "AWSServiceRole") {
+			continue
+		}
+		inputDeleteRole := rolename.RoleName
+		err := detachRolePolicies(inputDeleteRole, newAWSClient)
+		if err != nil {
+			return nil
+		}
+
+		_, err = newAWSClient.DeleteRole(&iam.DeleteRoleInput{RoleName: inputDeleteRole})
+		if err != nil {
+			return err
+		}
+
+	}
+	return nil
+}
+
 func (o *accountUnassignOptions) deleteGroups(user string) error {
 
 	inputListGroups := &iam.ListGroupsForUserInput{
@@ -382,7 +536,6 @@ func (o *accountUnassignOptions) deleteGroups(user string) error {
 	if err != nil {
 		return err
 	}
-
 	for _, g := range groups.Groups {
 		inputRemoveFromGroup := &iam.RemoveUserFromGroupInput{
 			GroupName: g.GroupName,
@@ -397,6 +550,7 @@ func (o *accountUnassignOptions) deleteGroups(user string) error {
 }
 
 func (o *accountUnassignOptions) deleteUser(user string) error {
+
 	inputDelUser := &iam.DeleteUserInput{
 		UserName: &user,
 	}
@@ -404,7 +558,6 @@ func (o *accountUnassignOptions) deleteUser(user string) error {
 	if err != nil {
 		return err
 	}
-
 	fmt.Printf("user %s successfully deleted\n", user)
 	return nil
 }

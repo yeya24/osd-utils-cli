@@ -2,10 +2,13 @@ package mgmt
 
 import (
 	"fmt"
+	"os"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/organizations"
-	"github.com/aws/aws-sdk-go/service/resourcegroupstaggingapi"
+	"github.com/aws/aws-sdk-go-v2/service/organizations"
+	"github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi"
+	resourceGroupsTaggingApiTypes "github.com/aws/aws-sdk-go-v2/service/resourcegroupstaggingapi/types"
+	outputflag "github.com/openshift/osdctl/cmd/getoutput"
+	"github.com/openshift/osdctl/internal/utils/globalflags"
 	"github.com/openshift/osdctl/pkg/printer"
 	awsprovider "github.com/openshift/osdctl/pkg/provider/aws"
 	"github.com/spf13/cobra"
@@ -19,22 +22,34 @@ type accountListOptions struct {
 	username     string
 	payerAccount string
 	accountID    string
+	output       string
 
-	flags      *genericclioptions.ConfigFlags
 	printFlags *printer.PrintFlags
 	genericclioptions.IOStreams
+	GlobalOptions *globalflags.GlobalOptions
 }
 
-func newAccountListOptions(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *accountListOptions {
+type listResponse struct {
+	Username string   `json:"username" yaml:"username"`
+	Accounts []string `json:"accounts" yaml:"accounts"`
+}
+
+func (f listResponse) String() string {
+
+	return fmt.Sprintf("  Username: %s\n  Accounts: %s\n", f.Username, f.Accounts)
+
+}
+
+func newAccountListOptions(streams genericclioptions.IOStreams, globalOpts *globalflags.GlobalOptions) *accountListOptions {
 	return &accountListOptions{
-		flags:      flags,
-		printFlags: printer.NewPrintFlags(),
-		IOStreams:  streams,
+		printFlags:    printer.NewPrintFlags(),
+		IOStreams:     streams,
+		GlobalOptions: globalOpts,
 	}
 }
 
-func newCmdAccountList(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *cobra.Command {
-	ops := newAccountListOptions(streams, flags)
+func newCmdAccountList(streams genericclioptions.IOStreams, globalOpts *globalflags.GlobalOptions) *cobra.Command {
+	ops := newAccountListOptions(streams, globalOpts)
 	accountListCmd := &cobra.Command{
 		Use:               "list",
 		Short:             "List out accounts for username",
@@ -53,12 +68,12 @@ func newCmdAccountList(streams genericclioptions.IOStreams, flags *genericcliopt
 }
 
 func (o *accountListOptions) complete(cmd *cobra.Command, _ []string) error {
-	if o.payerAccount == "" {
-		return cmdutil.UsageErrorf(cmd, "Payer account was not provided")
-	}
 	if o.username != "" && o.accountID != "" {
 		return cmdutil.UsageErrorf(cmd, "Cannot provide both username and account ID")
 	}
+
+	o.output = o.GlobalOptions.Output
+
 	return nil
 }
 
@@ -67,15 +82,16 @@ func (o *accountListOptions) run() error {
 	var (
 		OuID string
 	)
+
 	// Instantiate Aws client
 	awsClient, err := awsprovider.NewAwsClient(o.payerAccount, "us-east-1", "")
 	if err != nil {
 		return err
 	}
 
-	if o.payerAccount == "osd-staging-2" {
+	if o.payerAccount == osdStaging2 || os.Getenv(envKeyAWSAccountName) == osdStaging2 {
 		OuID = "ou-rs3h-ry0hn2l9"
-	} else if o.payerAccount == "osd-staging-1" {
+	} else if o.payerAccount == osdStaging1 || os.Getenv(envKeyAWSAccountName) == osdStaging1 {
 		OuID = "ou-0wd6-z6tzkjek"
 	}
 
@@ -111,14 +127,24 @@ func (o *accountListOptions) run() error {
 	}
 
 	for key, value := range o.m {
-		fmt.Fprintln(o.IOStreams.Out, key, value)
+		resp := listResponse{
+			Username: key,
+			Accounts: value,
+		}
+
+		err := outputflag.PrintResponse(o.output, resp)
+		if err != nil {
+			fmt.Println("Error while printing response: ", err.Error())
+			return err
+		}
+
 	}
 
 	return nil
 }
 
-var ErrNoOwnerTag error = fmt.Errorf("No owner tag on aws account")
-var ErrNoTagsOnAccount error = fmt.Errorf("No tags on aws account")
+var ErrNoOwnerTag = fmt.Errorf("No owner tag on aws account")
+var ErrNoTagsOnAccount = fmt.Errorf("No tags on aws account")
 
 func (o *accountListOptions) listUserName(accountIdInput string) (string, error) {
 
@@ -142,16 +168,17 @@ func (o *accountListOptions) listUserName(accountIdInput string) (string, error)
 	return "", ErrNoOwnerTag
 }
 
-var ErrNoResources error = fmt.Errorf("No resources for AWS tag")
+var ErrNoResources = fmt.Errorf("No resources for AWS tag")
 
 func (o *accountListOptions) listAccountsByUser(user string) ([]string, error) {
 	// Create input to list the accounts from a specific user
+	key := "owner"
 	inputFilterTag := &resourcegroupstaggingapi.GetResourcesInput{
-		TagFilters: []*resourcegroupstaggingapi.TagFilter{
+		TagFilters: []resourceGroupsTaggingApiTypes.TagFilter{
 			{
-				Key: aws.String("owner"),
-				Values: []*string{
-					aws.String(user),
+				Key: &key,
+				Values: []string{
+					user,
 				},
 			},
 		},
@@ -174,8 +201,8 @@ func (o *accountListOptions) listAccountsByUser(user string) ([]string, error) {
 	return tempAccountIDs, nil
 }
 
-var ErrNoAccountsForParent error = fmt.Errorf("no accounts for OU")
-var ErrAccountsWithNoOwner error = fmt.Errorf("aws accounts available but no owner tags present")
+var ErrNoAccountsForParent = fmt.Errorf("no accounts for OU")
+var ErrAccountsWithNoOwner = fmt.Errorf("aws accounts available but no owner tags present")
 
 func (o *accountListOptions) listAllAccounts(OuIdInput string) (map[string][]string, error) {
 

@@ -1,0 +1,18 @@
+Performs DNS resolution tests for HCP clusters.
+
+Note: This command should be run when on the Red Hat VPN
+
+This command tests DNS resolution for cluster public endpoints:
+- Wildcard A record: *.apps.rosa.<domain-prefix>.<base-domain>
+- Apps CNAME: apps.rosa.<domain-prefix>.<base-domain>
+- ACME challenge CNAME: _acme-challenge.apps.rosa.<domain-prefix>.<base-domain>
+- Cluster ID CNAME: <cluster-id>.rosa.<domain-prefix>.<base-domain>
+- ACME cluster CNAME: _acme-challenge.<cluster-id>.rosa.<domain-prefix>.<base-domain>
+- API record: api.<domain-prefix>.<base-domain> (A record or CNAME based on PrivateLink)
+- OAuth record: oauth.<domain-prefix>.<base-domain> (A record or CNAME based on PrivateLink)
+
+This command only supports HCP (Hosted Control Plane) clusters.
+
+Output Formats:
+- table (default): Human-readable table format with summary and recommendations
+- json: JSON format for programmatic consumption

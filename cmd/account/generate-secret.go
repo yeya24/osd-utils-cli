@@ -3,32 +3,32 @@ package account
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/iam"
-	"github.com/aws/aws-sdk-go/service/sts"
-	awsv1alpha1 "github.com/openshift/aws-account-operator/pkg/apis/aws/v1alpha1"
+	awsSdk "github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/arn"
+	"github.com/aws/aws-sdk-go-v2/service/iam"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
+	awsv1alpha1 "github.com/openshift/aws-account-operator/api/v1alpha1"
+	"github.com/openshift/osdctl/cmd/common"
+	"github.com/openshift/osdctl/pkg/k8s"
+	awsprovider "github.com/openshift/osdctl/pkg/provider/aws"
 	"github.com/spf13/cobra"
-
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/openshift/osdctl/cmd/common"
-	"github.com/openshift/osdctl/pkg/k8s"
-	awsprovider "github.com/openshift/osdctl/pkg/provider/aws"
 )
 
 // newCmdGenerateSecret implements the generate-secret command which generates an new set of IAM User credentials
-func newCmdGenerateSecret(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *cobra.Command {
-	ops := newGenerateSecretOptions(streams, flags)
+func newCmdGenerateSecret(streams genericclioptions.IOStreams, client client.Client) *cobra.Command {
+	ops := newGenerateSecretOptions(streams, client)
 	generateSecretCmd := &cobra.Command{
 		Use:               "generate-secret <IAM User name>",
-		Short:             "Generate IAM credentials secret",
+		Short:             "Generates IAM credentials secret",
+		Long:              "When logged into a hive shard, this generates a new IAM credential secret for a given IAM user",
 		DisableAutoGenTag: true,
 		Run: func(cmd *cobra.Command, args []string) {
 			cmdutil.CheckErr(ops.complete(cmd, args))
@@ -64,19 +64,19 @@ type generateSecretOptions struct {
 	outputPath      string
 
 	// AWS config
-	region  string
-	profile string
-	cfgFile string
+	region            string
+	profile           string
+	cfgFile           string
+	awsAccountTimeout *int32
 
-	flags *genericclioptions.ConfigFlags
 	genericclioptions.IOStreams
 	kubeCli client.Client
 }
 
-func newGenerateSecretOptions(streams genericclioptions.IOStreams, flags *genericclioptions.ConfigFlags) *generateSecretOptions {
+func newGenerateSecretOptions(streams genericclioptions.IOStreams, client client.Client) *generateSecretOptions {
 	return &generateSecretOptions{
-		flags:     flags,
 		IOStreams: streams,
+		kubeCli:   client,
 	}
 }
 
@@ -106,24 +106,16 @@ func (o *generateSecretOptions) complete(cmd *cobra.Command, args []string) erro
 		return cmdutil.UsageErrorf(cmd, "AWS account CR name and AWS account ID cannot be set at the same time")
 	}
 
-	// only initialize kubernetes client when account name is set
-	if o.accountName != "" {
-		var err error
-		o.kubeCli, err = k8s.NewClient(o.flags)
-		if err != nil {
-			return err
-		}
-	}
+	// The aws account timeout. The min the API supports is 15mins.
+	// 900 sec is 15min
+	o.awsAccountTimeout = awsSdk.Int32(900)
 
 	return nil
 }
 
 func (o *generateSecretOptions) run() error {
-
 	if o.ccs {
-		err := o.generateCcsSecret()
-
-		return err
+		return o.generateCcsSecret()
 	}
 
 	ctx := context.TODO()
@@ -143,7 +135,11 @@ func (o *generateSecretOptions) run() error {
 		if account.Spec.AwsAccountID != "" {
 			accountID = account.Spec.AwsAccountID
 		} else {
-			return fmt.Errorf("Account CR is missing AWS Account ID")
+			return fmt.Errorf("account CR is missing AWS Account ID")
+		}
+
+		if account.Spec.ManualSTSMode {
+			return fmt.Errorf("Account %s is STS - No IAM User Credentials to Rotate", o.accountName)
 		}
 	} else {
 		accountID = o.accountID
@@ -155,15 +151,20 @@ func (o *generateSecretOptions) run() error {
 		return err
 	}
 
+	callerIdentityArn, err := arn.Parse(*callerIdentityOutput.Arn)
+	if err != nil {
+		return err
+	}
+
 	// Assume
-	roleArn := aws.String(fmt.Sprintf("arn:aws:iam::%s:role/%s", accountID, awsv1alpha1.AccountOperatorIAMRole))
-	credentials, err := awsprovider.GetAssumeRoleCredentials(awsSetupClient, aws.Int64(900),
+	roleArn := awsSdk.String(fmt.Sprintf("arn:%s:iam::%s:role/%s", callerIdentityArn.Partition, accountID, awsv1alpha1.AccountOperatorIAMRole))
+	credentials, err := awsprovider.GetAssumeRoleCredentials(awsSetupClient, awsSdk.Int32(900),
 		callerIdentityOutput.UserId, roleArn)
 	if err != nil {
 		return err
 	}
 
-	awsClient, err := awsprovider.NewAwsClientWithInput(&awsprovider.AwsClientInput{
+	awsClient, err := awsprovider.NewAwsClientWithInput(&awsprovider.ClientInput{
 		AccessKeyID:     *credentials.AccessKeyId,
 		SecretAccessKey: *credentials.SecretAccessKey,
 		SessionToken:    *credentials.SessionToken,
@@ -173,7 +174,7 @@ func (o *generateSecretOptions) run() error {
 		return err
 	}
 
-	username := aws.String(o.iamUsername)
+	username := awsSdk.String(o.iamUsername)
 	ok, err := awsprovider.CheckIAMUserExists(awsClient, username)
 	if err != nil {
 		return err
@@ -181,7 +182,7 @@ func (o *generateSecretOptions) run() error {
 
 	// if the specified user does not exist, create one
 	if !ok {
-		policyArn := aws.String("arn:aws:iam::aws:policy/AdministratorAccess")
+		policyArn := awsSdk.String("arn:aws:iam::aws:policy/AdministratorAccess")
 		if err := awsprovider.CreateIAMUserAndAttachPolicy(awsClient,
 			username, policyArn); err != nil {
 			return err
@@ -215,7 +216,8 @@ func (o *generateSecretOptions) run() error {
 		if err != nil {
 			return err
 		}
-		return ioutil.WriteFile(outputPath, []byte(secret), 0644)
+		// set permission to 0600 to ensure, only owner has access
+		return os.WriteFile(outputPath, []byte(secret), 0600)
 	}
 
 	return nil
@@ -235,7 +237,7 @@ func (o *generateSecretOptions) generateCcsSecret() error {
 		return err
 	}
 
-	// Ensure AWS calls are succesful with client
+	// Ensure AWS calls are successful with client
 	callerIdentityOutput, err := awsSetupClient.GetCallerIdentity(&sts.GetCallerIdentityInput{})
 	if err != nil {
 		return err
@@ -243,14 +245,14 @@ func (o *generateSecretOptions) generateCcsSecret() error {
 
 	accountIDSuffixLabel, ok := account.Labels["iamUserId"]
 	if !ok {
-		return fmt.Errorf("No label on Account CR for IAM User")
+		return fmt.Errorf("no label on Account CR for IAM User")
 	}
 
 	// Get the aws-account-operator configmap
 	cm := &corev1.ConfigMap{}
 	cmErr := o.kubeCli.Get(context.TODO(), types.NamespacedName{Namespace: common.AWSAccountNamespace, Name: common.DefaultConfigMap}, cm)
 	if cmErr != nil {
-		return fmt.Errorf("There was an error getting the ConfigMap to get the SRE Access Role %s", cmErr)
+		return fmt.Errorf("there was an error getting the ConfigMap to get the SRE Access Role %s", cmErr)
 	}
 	// Get the ARN value
 	SREAccessARN := cm.Data["CCS-Access-Arn"]
@@ -259,13 +261,13 @@ func (o *generateSecretOptions) generateCcsSecret() error {
 	}
 
 	// Assume the ARN
-	srepRoleCredentials, err := awsprovider.GetAssumeRoleCredentials(awsSetupClient, aws.Int64(900), callerIdentityOutput.UserId, &SREAccessARN)
+	srepRoleCredentials, err := awsprovider.GetAssumeRoleCredentials(awsSetupClient, awsSdk.Int32(900), callerIdentityOutput.UserId, &SREAccessARN)
 	if err != nil {
 		return err
 	}
 
 	// Create client with the SREP role
-	srepRoleClient, err := awsprovider.NewAwsClientWithInput(&awsprovider.AwsClientInput{
+	srepRoleClient, err := awsprovider.NewAwsClientWithInput(&awsprovider.ClientInput{
 		AccessKeyID:     *srepRoleCredentials.AccessKeyId,
 		SecretAccessKey: *srepRoleCredentials.SecretAccessKey,
 		SessionToken:    *srepRoleCredentials.SessionToken,
@@ -275,26 +277,48 @@ func (o *generateSecretOptions) generateCcsSecret() error {
 		return err
 	}
 
-	// Role chain to assume BYOCAdminAccessRole-{uid}
-	roleArn := aws.String(fmt.Sprintf("arn:aws:iam::%s:role/%s", account.Spec.AwsAccountID, "BYOCAdminAccess-"+accountIDSuffixLabel))
-	credentials, err := awsprovider.GetAssumeRoleCredentials(srepRoleClient, aws.Int64(900),
+	// Get the Jump ARN value
+	JumpARN := cm.Data["support-jump-role"]
+	if JumpARN == "" {
+		return fmt.Errorf("jump Access ARN is missing from configmap")
+	}
+	// Assume the ARN
+	jumpRoleCreds, err := awsprovider.GetAssumeRoleCredentials(srepRoleClient, o.awsAccountTimeout, callerIdentityOutput.UserId, &JumpARN)
+	if err != nil {
+		return err
+	}
+	// Create client with the Jump role
+	jumpRoleClient, err := awsprovider.NewAwsClientWithInput(&awsprovider.ClientInput{
+		AccessKeyID:     *jumpRoleCreds.AccessKeyId,
+		SecretAccessKey: *jumpRoleCreds.SecretAccessKey,
+		SessionToken:    *jumpRoleCreds.SessionToken,
+		Region:          "us-east-1",
+	})
+	if err != nil {
+		return err
+	}
+	// Role chain to assume ManagedOpenShift-Support-{uid}
+	roleArn := awsSdk.String(fmt.Sprintf("arn:aws:iam::%s:role/%s", account.Spec.AwsAccountID, "ManagedOpenShift-Support-"+accountIDSuffixLabel))
+	credentials, err := awsprovider.GetAssumeRoleCredentials(jumpRoleClient, o.awsAccountTimeout,
 		callerIdentityOutput.UserId, roleArn)
 	if err != nil {
 		return err
 	}
 
 	// Create client with the chain assumed role
-	awsAssumedRoleClient, err := awsprovider.NewAwsClientWithInput(&awsprovider.AwsClientInput{
+	awsAssumedRoleClient, err := awsprovider.NewAwsClientWithInput(&awsprovider.ClientInput{
 		AccessKeyID:     *credentials.AccessKeyId,
 		SecretAccessKey: *credentials.SecretAccessKey,
 		SessionToken:    *credentials.SessionToken,
 		Region:          "us-east-1",
 	})
+	if err != nil {
+		return err
+	}
 
 	// Create new set of Access Keys for osdCcsAdmin
-
 	newKey, err := awsAssumedRoleClient.CreateAccessKey(&iam.CreateAccessKeyInput{
-		UserName: aws.String(common.OSDCcsAdminIAM),
+		UserName: awsSdk.String(common.OSDCcsAdminIAM),
 	})
 	if err != nil {
 		return err
@@ -312,5 +336,4 @@ func (o *generateSecretOptions) generateCcsSecret() error {
 	}
 
 	return nil
-
 }

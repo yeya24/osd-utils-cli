@@ -2,7 +2,7 @@ package utils
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"time"
@@ -26,7 +26,7 @@ func IsOnline(url url.URL) error {
 	}
 
 	// Non-200 http statuses are considered error
-	return fmt.Errorf("timeout or uknown HTTP error, while trying to access %q", url.String())
+	return fmt.Errorf("timeout or unknown HTTP error, while trying to access %q", url.String())
 }
 
 // IsValidUrl tests a string to determine if it is a well-structured url or not.
@@ -45,12 +45,14 @@ func IsValidUrl(toTest string) bool {
 }
 
 func CurlThis(webpage string) (body []byte, err error) {
-	resp, err := http.Get(webpage)
+	// For the following line we have to disable the gosec linter, otherwise G107 will get thrown
+	// G107 is about handling non const URLs. We are reading a URL from a file. This can be malicious.
+	resp, err := http.Get(webpage) //#nosec G107 -- url cannot be constant
 	defer func() {
 		err = resp.Body.Close()
 	}()
 	if resp.StatusCode == http.StatusOK {
-		bodyBytes, err := ioutil.ReadAll(resp.Body)
+		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return body, err
 		}

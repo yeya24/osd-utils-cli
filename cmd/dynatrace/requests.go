@@ -1,0 +1,304 @@
+package dynatrace
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+
+	"github.com/openshift/osdctl/pkg/utils"
+)
+
+const (
+	authURL string = "https://sso.dynatrace.com/sso/oauth2/token"
+
+	// Logs
+	DTStorageVaultPathKey string = "dt_vault_path"
+	DTStorageScopes       string = "storage:logs:read storage:events:read storage:buckets:read"
+
+	// Dashboards
+	DTDocumentVaultPathKey string = "dt_document_vault_path"
+	DTDocumentScopes       string = "document:documents:read"
+	DTDashboardType        string = "dashboard"
+)
+
+func getDocumentAccessToken() (string, error) {
+	return utils.GetScopedAccessToken(authURL, DTDocumentVaultPathKey, DTDocumentScopes)
+}
+
+func getStorageAccessToken() (string, error) {
+	return utils.GetScopedAccessToken(authURL, DTStorageVaultPathKey, DTStorageScopes)
+}
+
+func getStorageTokenProvider() (utils.AccessTokenProvider, error) {
+	return utils.GetScopedTokenProvider(authURL, DTStorageVaultPathKey, DTStorageScopes)
+}
+
+type DTQueryPayload struct {
+	Query            string `json:"query"`
+	MaxResultRecords int    `json:"maxResultRecords"`
+}
+
+type DTPollResult struct {
+	State string `json:"state"`
+}
+
+type DTLogsPollResult struct {
+	State    string    `json:"state"`
+	Progress int       `json:"progress"`
+	Result   LogResult `json:"result"`
+}
+
+type LogResult struct {
+	Records []LogContent `json:"records"`
+}
+
+type LogContent struct {
+	Content string `json:"content"`
+}
+
+type DTEventsPollResult struct {
+	State    string        `json:"state"`
+	Progress int           `json:"progress"`
+	Result   DTEventResult `json:"result"`
+}
+
+type DTEventResult struct {
+	Records []json.RawMessage `json:"records"`
+}
+
+type DTExecuteState struct {
+	State      string `json:"state"`
+	TTLSeconds int    `json:"ttlSeconds"`
+}
+
+type DTExecuteToken struct {
+	RequestToken string `json:"requestToken"`
+}
+
+type DTExecuteResults struct {
+	Result []json.RawMessage `json:"records"`
+}
+
+type DTDocumentResult struct {
+	Documents []DTDocument `json:"documents"`
+}
+
+type DTDocument struct {
+	Id   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type"`
+}
+
+func getDTQueryExecution(dtURL string, accessToken string, query string) (reqToken string, error error) {
+	// Note: Currently we are setting a limit of 20,000 lines to pull from Dynatrace
+	// due to a limitation in dynatrace to pull all logs. This limitation can be revoked
+	// once https://community.dynatrace.com/t5/Product-ideas/Pagination-in-DQL-results/idi-p/248282#M45818
+	// is addressed. Then we can implement https://issues.redhat.com/browse/OSD-24349 to get rid of this limitation.
+	payload := DTQueryPayload{
+		Query:            query,
+		MaxResultRecords: 20000,
+	}
+
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	requester := utils.Requester{
+		Method: http.MethodPost,
+		Url:    dtURL + "platform/storage/query/v1/query:execute",
+		Data:   string(payloadJSON),
+		Headers: map[string]string{
+			"Content-Type":  "application/json",
+			"Authorization": "Bearer " + accessToken,
+		},
+		SuccessCode: http.StatusAccepted,
+	}
+
+	var resp string
+	for {
+		resp, err = requester.Send()
+		if err != nil {
+			return "", err
+		}
+		var execState DTExecuteState
+		err = json.Unmarshal([]byte(resp), &execState)
+		if err != nil {
+			return "", err
+		}
+
+		if execState.State != "RUNNING" && execState.State != "SUCCEEDED" {
+			return "", fmt.Errorf("query failed")
+		}
+
+		break
+	}
+
+	var state DTExecuteState
+	err = json.Unmarshal([]byte(resp), &state)
+	if err != nil {
+		return "", err
+	}
+
+	if state.State != "RUNNING" && state.State != "SUCCEEDED" {
+		return "", fmt.Errorf("query failed")
+	}
+
+	// acquire the request token for the execution
+	var token DTExecuteToken
+	err = json.Unmarshal([]byte(resp), &token)
+	if err != nil {
+		return "", err
+	}
+
+	return token.RequestToken, err
+}
+
+func getDTPollResults(dtURL string, requestToken string, accessToken string) (respBody string, error error) {
+	var dtPollRes DTLogsPollResult
+	reqData := url.Values{
+		"request-token": {requestToken},
+	}.Encode()
+
+	requester := utils.Requester{
+		Method: http.MethodGet,
+		Url:    dtURL + "platform/storage/query/v1/query:poll?" + reqData,
+		Headers: map[string]string{
+			"Content-Type":  "application/json",
+			"Authorization": "Bearer " + accessToken,
+		},
+		SuccessCode: http.StatusOK,
+	}
+
+	for {
+		resp, err := requester.Send()
+		if err != nil {
+			return "", err
+		}
+
+		err = json.Unmarshal([]byte(resp), &dtPollRes)
+		if err != nil {
+			return "", err
+		}
+
+		if dtPollRes.State == "RUNNING" {
+			continue
+		}
+
+		if dtPollRes.State == "SUCCEEDED" {
+			return resp, nil
+		}
+
+		if dtPollRes.State != "RUNNING" && dtPollRes.State != "SUCCEEDED" {
+			return "", fmt.Errorf("query failed")
+		}
+	}
+}
+
+// getDocumentIDByNameAndType searches using the dynatrace document API using a filter that
+// checks for an exact match of both name and type. It will return the id of the document
+// found, unless it find zero or multiple in which case it will return an error
+func getDocumentIDByNameAndType(dtURL string, accessToken string, docName string, docType string) (string, error) {
+	dtDashFilter := "name == '" + docName + "' and type == '" + docType + "'"
+	parameters := url.Values{
+		"filter": {dtDashFilter},
+	}.Encode()
+
+	requester := utils.Requester{
+		Method: http.MethodGet,
+		Url:    dtURL + "platform/document/v1/documents?" + parameters,
+		Headers: map[string]string{
+			"Content-Type":  "application/json",
+			"Authorization": "Bearer " + accessToken,
+		},
+		SuccessCode: http.StatusOK,
+	}
+
+	result, err := requester.Send()
+	if err != nil {
+		return "", fmt.Errorf("could not search for dashboard: %w", err)
+	}
+
+	var dtDocResult DTDocumentResult
+	err = json.Unmarshal([]byte(result), &dtDocResult)
+	if err != nil {
+		return "", fmt.Errorf("response in incorrect format")
+	}
+
+	docCount := len(dtDocResult.Documents)
+	if docCount == 0 {
+		return "", fmt.Errorf("dashboard not found")
+	}
+	if docCount > 1 {
+		return "", fmt.Errorf("dashboard name was ambiguous, %d dashboards found", docCount)
+	}
+
+	dtDashboard := dtDocResult.Documents[0]
+
+	return dtDashboard.Id, nil
+}
+
+func fetchAndWriteLogs(dtURL string, accessToken string, requestToken string, filePath string) error {
+	resp, err := getDTPollResults(dtURL, requestToken, accessToken)
+	if err != nil {
+		return err
+	}
+
+	var dtPollRes DTLogsPollResult
+	err = json.Unmarshal([]byte(resp), &dtPollRes)
+	if err != nil {
+		return err
+	}
+
+	var w io.Writer = os.Stdout
+	if filePath != "" {
+		f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		w = f
+	}
+
+	for _, result := range dtPollRes.Result.Records {
+		if _, err := fmt.Fprintf(w, "%s\n", result.Content); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func fetchAndWriteEvents(dtURL string, accessToken string, requestToken string, filePath string) error {
+	resp, err := getDTPollResults(dtURL, requestToken, accessToken)
+	if err != nil {
+		return err
+	}
+
+	var dtPollRes DTEventsPollResult
+	err = json.Unmarshal([]byte(resp), &dtPollRes)
+	if err != nil {
+		return err
+	}
+
+	var w io.Writer = os.Stdout
+	if filePath != "" {
+		f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		w = f
+	}
+
+	for _, result := range dtPollRes.Result.Records {
+		if _, err := fmt.Fprintf(w, "%s\n", result); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}

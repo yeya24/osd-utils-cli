@@ -1,0 +1,25 @@
+## osdctl promote
+
+Utilities to promote services/operators
+
+### Options
+
+```
+  -h, --help   help for promote
+```
+
+### Options inherited from parent commands
+
+```
+  -S, --skip-version-check   skip checking to see if this is the most recent release
+```
+
+### SEE ALSO
+
+* [osdctl](osdctl.md)	 - OSD CLI
+* [osdctl promote block](osdctl_promote_block.md)	 - Add a blocked version to a component in app.yaml
+* [osdctl promote dynatrace](osdctl_promote_dynatrace.md)	 - Utilities to promote dynatrace
+* [osdctl promote managedscripts](osdctl_promote_managedscripts.md)	 - Promote https://github.com/openshift/managed-scripts
+* [osdctl promote rhobs](osdctl_promote_rhobs.md)	 - Promote RHOBS configuration to production
+* [osdctl promote saas](osdctl_promote_saas.md)	 - Utilities to promote SaaS services/operators
+
